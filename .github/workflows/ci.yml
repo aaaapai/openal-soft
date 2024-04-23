@@ -13,7 +13,9 @@ jobs:
         - {
             name: "Android-Release",
             os: ubuntu-latest,
-            cmake_opts: "-DCMAKE_SYSTEM_NAME=ANDROID",
+            cmake_opts: "-DCMAKE_SYSTEM_NAME=ANDROID \
+              -DALSOFT_REQUIRE_OBOE=ON \
+              -DALSOFT_REQUIRE_OPENSL=ON",
             build_type: "Release"
           }
 
