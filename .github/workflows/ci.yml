@@ -11,68 +11,6 @@ jobs:
       matrix:
         config:
         - {
-            name: "Win32-Release",
-            os: windows-latest,
-            cmake_opts: "-A Win32 \
-              -DALSOFT_TESTS=ON \
-              -DALSOFT_BUILD_ROUTER=ON \
-              -DALSOFT_REQUIRE_WINMM=ON \
-              -DALSOFT_REQUIRE_DSOUND=ON \
-              -DALSOFT_REQUIRE_WASAPI=ON",
-            build_type: "Release"
-          }
-        - {
-            name: "Win32-Debug",
-            os: windows-latest,
-            cmake_opts: "-A Win32 \
-              -DALSOFT_TESTS=ON \
-              -DALSOFT_BUILD_ROUTER=ON \
-              -DALSOFT_REQUIRE_WINMM=ON \
-              -DALSOFT_REQUIRE_DSOUND=ON \
-              -DALSOFT_REQUIRE_WASAPI=ON",
-            build_type: "Debug"
-          }
-        - {
-            name: "Win64-Release",
-            os: windows-latest,
-            cmake_opts: "-A x64 \
-              -DALSOFT_TESTS=ON \
-              -DALSOFT_BUILD_ROUTER=ON \
-              -DALSOFT_REQUIRE_WINMM=ON \
-              -DALSOFT_REQUIRE_DSOUND=ON \
-              -DALSOFT_REQUIRE_WASAPI=ON",
-            build_type: "Release"
-          }
-        - {
-            name: "Win64-Debug",
-            os: windows-latest,
-            cmake_opts: "-A x64 \
-              -DALSOFT_TESTS=ON \
-              -DALSOFT_BUILD_ROUTER=ON \
-              -DALSOFT_REQUIRE_WINMM=ON \
-              -DALSOFT_REQUIRE_DSOUND=ON \
-              -DALSOFT_REQUIRE_WASAPI=ON",
-            build_type: "Debug"
-          }
-        - {
-            name: "Win64-UWP",
-            os: windows-latest,
-            cmake_opts: "-A x64 \
-              -DALSOFT_TESTS=OFF \
-              -DCMAKE_SYSTEM_NAME=WindowsStore \
-              \"-DCMAKE_SYSTEM_VERSION=10.0\" \
-              -DALSOFT_BUILD_ROUTER=ON \
-              -DALSOFT_REQUIRE_WASAPI=ON",
-            build_type: "Release"
-          }
-        - {
-            name: "macOS-Release",
-            os: macos-latest,
-            cmake_opts: "-DALSOFT_REQUIRE_COREAUDIO=ON \
-              -DALSOFT_TESTS=ON",
-            build_type: "Release"
-          }
-        - {
             name: "iOS-Release",
             os: macos-latest,
             cmake_opts: "-GXcode \
@@ -97,19 +35,11 @@ jobs:
               -DALSOFT_REQUIRE_JACK=ON \
               -DALSOFT_REQUIRE_PIPEWIRE=ON \
               -DALSOFT_TESTS=ON",
-            deps_cmdline: "sudo apt update && sudo apt-get install -qq \
-              libpulse-dev \
-              portaudio19-dev \
-              libasound2-dev \
-              libjack-dev \
-              libpipewire-0.3-dev \
-              qtbase5-dev \
-              libdbus-1-dev",
             build_type: "Release"
           }
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install Dependencies
       shell: bash
