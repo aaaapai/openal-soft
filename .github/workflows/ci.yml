@@ -11,7 +11,7 @@ jobs:
       matrix:
         config:
         - {
-            name: "Linux-Release",
+            name: "Android-Release",
             os: ubuntu-latest,
             cmake_opts: "-DCMAKE_SYSTEM_NAME=Android \
               -DALSOFT_REQUIRE_RTKIT=ON \
