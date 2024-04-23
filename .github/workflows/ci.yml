@@ -11,7 +11,7 @@ jobs:
       matrix:
         config:
         - {
-            name: "Android-Release",
+            name: "Linux-Release",
             os: ubuntu-latest,
             cmake_opts: "-DCMAKE_SYSTEM_NAME=Android \
               -DALSOFT_REQUIRE_RTKIT=ON \
@@ -20,18 +20,17 @@ jobs:
               -DALSOFT_REQUIRE_PORTAUDIO=ON \
               -DALSOFT_REQUIRE_PULSEAUDIO=ON \
               -DALSOFT_REQUIRE_JACK=ON \
-              -DALSOFT_REQUIRE_PIPEWIRE=ON,
-            deps_cmdline: "sudo apt update && sudo apt-get install -qq \
+              -DALSOFT_REQUIRE_PIPEWIRE=ON \
+              -DALSOFT_TESTS=ON",
+            deps_cmdline: "sudo apt-get install -qq \
               libpulse-dev \
               portaudio19-dev \
               libasound2-dev \
               libjack-dev \
-              libpipewire-0.3-dev \
               qtbase5-dev \
               libdbus-1-dev",
             build_type: "Release"
           }
-
     steps:
     - uses: actions/checkout@v4
 
