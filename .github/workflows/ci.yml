@@ -11,20 +11,7 @@ jobs:
       matrix:
         config:
         - {
-            name: "iOS-Release",
-            os: macos-latest,
-            cmake_opts: "-GXcode \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DALSOFT_REQUIRE_COREAUDIO=ON \
-            -DALSOFT_UTILS=OFF \
-            -DALSOFT_EXAMPLES=OFF \
-            -DALSOFT_TESTS=OFF \
-            -DALSOFT_INSTALL=OFF \
-            \"-DCMAKE_OSX_ARCHITECTURES=arm64\"",
-            build_type: "Release"
-          }
-        - {
-            name: "Linux-Release",
+            name: "Android-Release",
             os: ubuntu-latest,
             cmake_opts: "-DCMAKE_SYSTEM_NAME=Android \
               -DALSOFT_REQUIRE_RTKIT=ON \
@@ -35,6 +22,13 @@ jobs:
               -DALSOFT_REQUIRE_JACK=ON \
               -DALSOFT_REQUIRE_PIPEWIRE=ON \
               -DALSOFT_TESTS=ON",
+            deps_cmdline: "sudo apt-get install -qq \
+              libpulse-dev \
+              portaudio19-dev \
+              libasound2-dev \
+              libjack-dev \
+              qtbase5-dev \
+              libdbus-1-dev",
             build_type: "Release"
           }
 
