@@ -88,7 +88,8 @@ jobs:
         - {
             name: "Linux-Release",
             os: ubuntu-latest,
-            cmake_opts: "-DALSOFT_REQUIRE_RTKIT=ON \
+            cmake_opts: "-DCMAKE_SYSTEM_NAME=Android \
+              -DALSOFT_REQUIRE_RTKIT=ON \
               -DALSOFT_REQUIRE_ALSA=ON \
               -DALSOFT_REQUIRE_OSS=ON \
               -DALSOFT_REQUIRE_PORTAUDIO=ON \
