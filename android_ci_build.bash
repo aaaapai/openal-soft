@@ -8,7 +8,7 @@ cmake_build () {
   mkdir -p build-$ANDROID_ABI
   mkdir -p lib/$ANDROID_ABI
   cd build-$ANDROID_ABI
-  cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DANDROID_PLATFORM=21 -DANDROID_ABI=$ANDROID_ABI -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/ndk-bundle/build/cmake/android.toolchain.cmake
+  cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DANDROID_PLATFORM=24 -DANDROID_ABI=$ANDROID_ABI -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/build/cmake/android.toolchain.cmake
   cmake --build . --clean-first
   # | echo "Build exit code: $?"
   # --verbose
@@ -19,7 +19,4 @@ cmake_build () {
 mkdir -p lib
 
 cmake_build arm64-v8a
-cmake_build armeabi-v7a
-cmake_build x86
-cmake_build x86_64
 
