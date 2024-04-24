@@ -13,7 +13,7 @@ jobs:
         - {
             name: "Android-Release",
             os: ubuntu-latest,
-            deps_cmdline: "git clone --depth 1 -b 1.3-stable https://github.com/google/oboe ~/oboe"
+            deps_cmdline: "git clone --depth 1 -b 1.3-stable https://github.com/google/oboe ~/oboe",
             cmake_opts: "-DCMAKE_SYSTEM_NAME=ANDROID \
               -DANDROID_STL=c++_shared \
               -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
