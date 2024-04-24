@@ -40,6 +40,8 @@
 
 #include "common/alhelpers.h"
 
+#include "win_main_utf8.h"
+
 
 /* Effect object functions */
 static LPALGENEFFECTS alGenEffects;
@@ -132,7 +134,7 @@ static ALuint LoadEffect(const EFXEAXREVERBPROPERTIES *reverb)
         alEffecti(effect, AL_REVERB_DECAY_HFLIMIT, reverb->iDecayHFLimit);
     }
 
-    /* Check if an error occured, and clean up if so. */
+    /* Check if an error occurred, and clean up if so. */
     err = alGetError();
     if(err != AL_NO_ERROR)
     {
@@ -219,7 +221,7 @@ static ALuint LoadSound(const char *filename)
     free(membuf);
     sf_close(sndfile);
 
-    /* Check if an error occured, and clean up if so. */
+    /* Check if an error occurred, and clean up if so. */
     err = alGetError();
     if(err != AL_NO_ERROR)
     {
@@ -259,7 +261,7 @@ int main(int argc, char **argv)
     }
 
     /* Define a macro to help load the function pointers. */
-#define LOAD_PROC(T, x)  ((x) = (T)alGetProcAddress(#x))
+#define LOAD_PROC(T, x)  ((x) = FUNCTION_CAST(T, alGetProcAddress(#x)))
     LOAD_PROC(LPALGENEFFECTS, alGenEffects);
     LOAD_PROC(LPALDELETEEFFECTS, alDeleteEffects);
     LOAD_PROC(LPALISEFFECT, alIsEffect);

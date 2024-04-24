@@ -1,8 +1,13 @@
 #ifndef AL_NUMERIC_H
 #define AL_NUMERIC_H
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <type_traits>
 #ifdef HAVE_INTRIN_H
 #include <intrin.h>
 #endif
@@ -10,61 +15,34 @@
 #include <xmmintrin.h>
 #endif
 
+#include "albit.h"
+#include "altraits.h"
 #include "opthelpers.h"
 
 
-inline constexpr int64_t operator "" _i64(unsigned long long int n) noexcept { return static_cast<int64_t>(n); }
-inline constexpr uint64_t operator "" _u64(unsigned long long int n) noexcept { return static_cast<uint64_t>(n); }
+constexpr auto operator "" _i64(unsigned long long n) noexcept { return static_cast<std::int64_t>(n); }
+constexpr auto operator "" _u64(unsigned long long n) noexcept { return static_cast<std::uint64_t>(n); }
+
+constexpr auto operator "" _z(unsigned long long n) noexcept
+{ return static_cast<std::make_signed_t<std::size_t>>(n); }
+constexpr auto operator "" _uz(unsigned long long n) noexcept { return static_cast<std::size_t>(n); }
+constexpr auto operator "" _zu(unsigned long long n) noexcept { return static_cast<std::size_t>(n); }
 
 
-constexpr inline float minf(float a, float b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline float maxf(float a, float b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline float clampf(float val, float min, float max) noexcept
-{ return minf(max, maxf(min, val)); }
+constexpr auto GetCounterSuffix(size_t count) noexcept -> const char*
+{
+    auto &suffix = (((count%100)/10) == 1) ? "th" :
+        ((count%10) == 1) ? "st" :
+        ((count%10) == 2) ? "nd" :
+        ((count%10) == 3) ? "rd" : "th";
+    return std::data(suffix);
+}
 
-constexpr inline double mind(double a, double b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline double maxd(double a, double b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline double clampd(double val, double min, double max) noexcept
-{ return mind(max, maxd(min, val)); }
 
-constexpr inline unsigned int minu(unsigned int a, unsigned int b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline unsigned int maxu(unsigned int a, unsigned int b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline unsigned int clampu(unsigned int val, unsigned int min, unsigned int max) noexcept
-{ return minu(max, maxu(min, val)); }
-
-constexpr inline int mini(int a, int b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline int maxi(int a, int b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline int clampi(int val, int min, int max) noexcept
-{ return mini(max, maxi(min, val)); }
-
-constexpr inline int64_t mini64(int64_t a, int64_t b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline int64_t maxi64(int64_t a, int64_t b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline int64_t clampi64(int64_t val, int64_t min, int64_t max) noexcept
-{ return mini64(max, maxi64(min, val)); }
-
-constexpr inline uint64_t minu64(uint64_t a, uint64_t b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline uint64_t maxu64(uint64_t a, uint64_t b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline uint64_t clampu64(uint64_t val, uint64_t min, uint64_t max) noexcept
-{ return minu64(max, maxu64(min, val)); }
-
-constexpr inline size_t minz(size_t a, size_t b) noexcept
-{ return ((a > b) ? b : a); }
-constexpr inline size_t maxz(size_t a, size_t b) noexcept
-{ return ((a > b) ? a : b); }
-constexpr inline size_t clampz(size_t val, size_t min, size_t max) noexcept
-{ return minz(max, maxz(min, val)); }
+constexpr inline float lerpf(float val1, float val2, float mu) noexcept
+{ return val1 + (val2-val1)*mu; }
+constexpr inline double lerpd(double val1, double val2, double mu) noexcept
+{ return val1 + (val2-val1)*mu; }
 
 
 /** Find the next power-of-2 for non-power-of-2 numbers. */
@@ -82,118 +60,20 @@ inline uint32_t NextPowerOf2(uint32_t value) noexcept
     return value+1;
 }
 
-/** Round up a value to the next multiple. */
-inline size_t RoundUp(size_t value, size_t r) noexcept
-{
-    value += r-1;
-    return value - (value%r);
-}
-
-
-/* Define CTZ macros (count trailing zeros), and POPCNT macros (population
- * count/count 1 bits), for 32- and 64-bit integers. The CTZ macros' results
- * are *UNDEFINED* if the value is 0.
+/**
+ * If the value is not already a multiple of r, round down to the next
+ * multiple.
  */
-#ifdef __GNUC__
-
-namespace detail_ {
-
 template<typename T>
-constexpr inline auto popcnt64(T val) = delete;
-template<>
-constexpr inline auto popcnt64(unsigned long long val) { return __builtin_popcountll(val); }
-template<>
-constexpr inline auto popcnt64(unsigned long val) { return __builtin_popcountl(val); }
+constexpr T RoundDown(T value, al::type_identity_t<T> r) noexcept
+{ return value - (value%r); }
 
-template<typename T>
-constexpr inline auto ctz64(T val) = delete;
-template<>
-constexpr inline auto ctz64(unsigned long long val) { return __builtin_ctzll(val); }
-template<>
-constexpr inline auto ctz64(unsigned long val) { return __builtin_ctzl(val); }
-
-} // namespace detail_
-
-#define POPCNT32 __builtin_popcount
-#define CTZ32 __builtin_ctz
-#define POPCNT64 detail_::popcnt64<uint64_t>
-#define CTZ64 detail_::ctz64<uint64_t>
-
-#else
-
-/* There be black magics here. The popcnt method is derived from
- * https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
- * while the ctz-utilizing-popcnt algorithm is shown here
- * http://www.hackersdelight.org/hdcodetxt/ntz.c.txt
- * as the ntz2 variant. These likely aren't the most efficient methods, but
- * they're good enough if the GCC built-ins aren't available.
+/**
+ * If the value is not already a multiple of r, round up to the next multiple.
  */
-inline int fallback_popcnt32(uint32_t v)
-{
-    v = v - ((v >> 1) & 0x55555555u);
-    v = (v & 0x33333333u) + ((v >> 2) & 0x33333333u);
-    v = (v + (v >> 4)) & 0x0f0f0f0fu;
-    return (int)((v * 0x01010101u) >> 24);
-}
-#define POPCNT32 fallback_popcnt32
-inline int fallback_popcnt64(uint64_t v)
-{
-    v = v - ((v >> 1) & 0x5555555555555555_u64);
-    v = (v & 0x3333333333333333_u64) + ((v >> 2) & 0x3333333333333333_u64);
-    v = (v + (v >> 4)) & 0x0f0f0f0f0f0f0f0f_u64;
-    return (int)((v * 0x0101010101010101_u64) >> 56);
-}
-#define POPCNT64 fallback_popcnt64
-
-#if defined(_WIN64)
-
-inline int msvc64_ctz32(uint32_t v)
-{
-    unsigned long idx = 32;
-    _BitScanForward(&idx, v);
-    return (int)idx;
-}
-#define CTZ32 msvc64_ctz32
-inline int msvc64_ctz64(uint64_t v)
-{
-    unsigned long idx = 64;
-    _BitScanForward64(&idx, v);
-    return (int)idx;
-}
-#define CTZ64 msvc64_ctz64
-
-#elif defined(_WIN32)
-
-inline int msvc_ctz32(uint32_t v)
-{
-    unsigned long idx = 32;
-    _BitScanForward(&idx, v);
-    return (int)idx;
-}
-#define CTZ32 msvc_ctz32
-inline int msvc_ctz64(uint64_t v)
-{
-    unsigned long idx = 64;
-    if(!_BitScanForward(&idx, (uint32_t)(v&0xffffffff)))
-    {
-        if(_BitScanForward(&idx, (uint32_t)(v>>32)))
-            idx += 32;
-    }
-    return (int)idx;
-}
-#define CTZ64 msvc_ctz64
-
-#else
-
-inline int fallback_ctz32(uint32_t value)
-{ return POPCNT32(~value & (value - 1)); }
-#define CTZ32 fallback_ctz32
-inline int fallback_ctz64(uint64_t value)
-{ return POPCNT64(~value & (value - 1)); }
-#define CTZ64 fallback_ctz64
-
-#endif
-#endif
+template<typename T>
+constexpr T RoundUp(T value, al::type_identity_t<T> r) noexcept
+{ return RoundDown(value + r-1, r); }
 
 
 /**
@@ -207,21 +87,18 @@ inline int fastf2i(float f) noexcept
 #if defined(HAVE_SSE_INTRINSICS)
     return _mm_cvt_ss2si(_mm_set_ss(f));
 
-#elif defined(_MSC_VER) && defined(_M_IX86_FP)
+#elif defined(_MSC_VER) && defined(_M_IX86_FP) && _M_IX86_FP == 0
 
     int i;
     __asm fld f
     __asm fistp i
     return i;
 
-#elif (defined(__GNUC__) || defined(__clang__)) && (defined(__i386__) || defined(__x86_64__))
+#elif (defined(__GNUC__) || defined(__clang__)) && (defined(__i386__) || defined(__x86_64__)) \
+    && !defined(__SSE_MATH__)
 
     int i;
-#ifdef __SSE_MATH__
-    __asm__("cvtss2si %1, %0" : "=r"(i) : "x"(f));
-#else
     __asm__ __volatile__("fistpl %0" : "=m"(i) : "t"(f) : "st");
-#endif
     return i;
 
 #else
@@ -240,23 +117,18 @@ inline int float2int(float f) noexcept
 
 #elif (defined(_MSC_VER) && defined(_M_IX86_FP) && _M_IX86_FP == 0) \
     || ((defined(__GNUC__) || defined(__clang__)) && (defined(__i386__) || defined(__x86_64__)) \
-        &&  !defined(__SSE_MATH__))
-    int sign, shift, mant;
-    union {
-        float f;
-        int i;
-    } conv;
+        && !defined(__SSE_MATH__))
+    const int conv_i{al::bit_cast<int>(f)};
 
-    conv.f = f;
-    sign = (conv.i>>31) | 1;
-    shift = ((conv.i>>23)&0xff) - (127+23);
+    const int sign{(conv_i>>31) | 1};
+    const int shift{((conv_i>>23)&0xff) - (127+23)};
 
     /* Over/underflow */
-    if UNLIKELY(shift >= 31 || shift < -23)
+    if(shift >= 31 || shift < -23) UNLIKELY
         return 0;
 
-    mant = (conv.i&0x7fffff) | 0x800000;
-    if LIKELY(shift < 0)
+    const int mant{(conv_i&0x7fffff) | 0x800000};
+    if(shift < 0) LIKELY
         return (mant >> -shift) * sign;
     return (mant << shift) * sign;
 
@@ -276,26 +148,20 @@ inline int double2int(double d) noexcept
 
 #elif (defined(_MSC_VER) && defined(_M_IX86_FP) && _M_IX86_FP < 2) \
     || ((defined(__GNUC__) || defined(__clang__)) && (defined(__i386__) || defined(__x86_64__)) \
-        &&  !defined(__SSE2_MATH__))
-    int sign, shift;
-    int64_t mant;
-    union {
-        double d;
-        int64_t i64;
-    } conv;
+        && !defined(__SSE2_MATH__))
+    const int64_t conv_i64{al::bit_cast<int64_t>(d)};
 
-    conv.d = d;
-    sign = (conv.i64 >> 63) | 1;
-    shift = ((conv.i64 >> 52) & 0x7ff) - (1023 + 52);
+    const int sign{static_cast<int>(conv_i64 >> 63) | 1};
+    const int shift{(static_cast<int>(conv_i64 >> 52) & 0x7ff) - (1023 + 52)};
 
     /* Over/underflow */
-    if UNLIKELY(shift >= 63 || shift < -52)
+    if(shift >= 63 || shift < -52) UNLIKELY
         return 0;
 
-    mant = (conv.i64 & 0xfffffffffffff_i64) | 0x10000000000000_i64;
-    if LIKELY(shift < 0)
-        return (int)(mant >> -shift) * sign;
-    return (int)(mant << shift) * sign;
+    const int64_t mant{(conv_i64 & 0xfffffffffffff_i64) | 0x10000000000000_i64};
+    if(shift < 0) LIKELY
+        return static_cast<int>(mant >> -shift) * sign;
+    return static_cast<int>(mant << shift) * sign;
 
 #else
 
@@ -317,26 +183,27 @@ inline float fast_roundf(float f) noexcept
     __asm__ __volatile__("frndint" : "=t"(out) : "0"(f));
     return out;
 
+#elif (defined(__GNUC__) || defined(__clang__)) && defined(__aarch64__)
+
+    float out;
+    __asm__ volatile("frintx %s0, %s1" : "=w"(out) : "w"(f));
+    return out;
+
 #else
 
     /* Integral limit, where sub-integral precision is not available for
      * floats.
      */
-    static const float ilim[2]{
+    static constexpr std::array ilim{
          8388608.0f /*  0x1.0p+23 */,
         -8388608.0f /* -0x1.0p+23 */
     };
-    unsigned int sign, expo;
-    union {
-        float f;
-        unsigned int i;
-    } conv;
+    const unsigned int conv_i{al::bit_cast<unsigned int>(f)};
 
-    conv.f = f;
-    sign = (conv.i>>31)&0x01;
-    expo = (conv.i>>23)&0xff;
+    const unsigned int sign{(conv_i>>31)&0x01};
+    const unsigned int expo{(conv_i>>23)&0xff};
 
-    if UNLIKELY(expo >= 150/*+23*/)
+    if(expo >= 150/*+23*/) UNLIKELY
     {
         /* An exponent (base-2) of 23 or higher is incapable of sub-integral
          * precision, so it's already an integral value. We don't need to worry
@@ -351,11 +218,32 @@ inline float fast_roundf(float f) noexcept
      * optimize this out because of non-associative rules on floating-point
      * math (as long as you don't use -fassociative-math,
      * -funsafe-math-optimizations, -ffast-math, or -Ofast, in which case this
-     * may break).
+     * may break without __builtin_assoc_barrier support).
      */
+#if HAS_BUILTIN(__builtin_assoc_barrier)
+    return __builtin_assoc_barrier(f + ilim[sign]) - ilim[sign];
+#else
     f += ilim[sign];
     return f - ilim[sign];
 #endif
+#endif
+}
+
+
+// Converts level (mB) to gain.
+inline float level_mb_to_gain(float x)
+{
+    if(x <= -10'000.0f)
+        return 0.0f;
+    return std::pow(10.0f, x / 2'000.0f);
+}
+
+// Converts gain to level (mB).
+inline float gain_to_level_mb(float x)
+{
+    if (x <= 0.0f)
+        return -10'000.0f;
+    return std::max(std::log10(x) * 2'000.0f, -10'000.0f);
 }
 
 #endif /* AL_NUMERIC_H */

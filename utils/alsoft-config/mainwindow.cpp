@@ -3,8 +3,9 @@
 
 #include "mainwindow.h"
 
-#include <iostream>
+#include <array>
 #include <cmath>
+#include <iostream>
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -19,142 +20,149 @@
 #include <shlobj.h>
 #endif
 
+#include "almalloc.h"
+#include "alspan.h"
+
 namespace {
 
-static const struct {
+struct BackendNamePair {
+    /* NOLINTBEGIN(*-avoid-c-arrays) */
     char backend_name[16];
     char full_string[32];
-} backendList[] = {
-#ifdef HAVE_JACK
-    { "jack", "JACK" },
+    /* NOLINTEND(*-avoid-c-arrays) */
+};
+constexpr std::array backendList{
+#ifdef HAVE_PIPEWIRE
+    BackendNamePair{ "pipewire", "PipeWire" },
 #endif
 #ifdef HAVE_PULSEAUDIO
-    { "pulse", "PulseAudio" },
+    BackendNamePair{ "pulse", "PulseAudio" },
 #endif
 #ifdef HAVE_ALSA
-    { "alsa", "ALSA" },
+    BackendNamePair{ "alsa", "ALSA" },
+#endif
+#ifdef HAVE_JACK
+    BackendNamePair{ "jack", "JACK" },
 #endif
 #ifdef HAVE_COREAUDIO
-    { "core", "CoreAudio" },
+    BackendNamePair{ "core", "CoreAudio" },
 #endif
 #ifdef HAVE_OSS
-    { "oss", "OSS" },
+    BackendNamePair{ "oss", "OSS" },
 #endif
 #ifdef HAVE_SOLARIS
-    { "solaris", "Solaris" },
+    BackendNamePair{ "solaris", "Solaris" },
 #endif
 #ifdef HAVE_SNDIO
-    { "sndio", "SoundIO" },
-#endif
-#ifdef HAVE_QSA
-    { "qsa", "QSA" },
+    BackendNamePair{ "sndio", "SndIO" },
 #endif
 #ifdef HAVE_WASAPI
-    { "wasapi", "WASAPI" },
+    BackendNamePair{ "wasapi", "WASAPI" },
 #endif
 #ifdef HAVE_DSOUND
-    { "dsound", "DirectSound" },
+    BackendNamePair{ "dsound", "DirectSound" },
 #endif
 #ifdef HAVE_WINMM
-    { "winmm", "Windows Multimedia" },
+    BackendNamePair{ "winmm", "Windows Multimedia" },
 #endif
 #ifdef HAVE_PORTAUDIO
-    { "port", "PortAudio" },
+    BackendNamePair{ "port", "PortAudio" },
 #endif
 #ifdef HAVE_OPENSL
-    { "opensl", "OpenSL" },
+    BackendNamePair{ "opensl", "OpenSL" },
 #endif
 
-    { "null", "Null Output" },
+    BackendNamePair{ "null", "Null Output" },
 #ifdef HAVE_WAVE
-    { "wave", "Wave Writer" },
+    BackendNamePair{ "wave", "Wave Writer" },
 #endif
-    { "", "" }
 };
 
-static const struct NameValuePair {
+struct NameValuePair {
+    /* NOLINTBEGIN(*-avoid-c-arrays) */
     const char name[64];
     const char value[16];
-} speakerModeList[] = {
-    { "Autodetect", "" },
-    { "Mono", "mono" },
-    { "Stereo", "stereo" },
-    { "Quadraphonic", "quad" },
-    { "5.1 Surround (Side)", "surround51" },
-    { "5.1 Surround (Rear)", "surround51rear" },
-    { "6.1 Surround", "surround61" },
-    { "7.1 Surround", "surround71" },
+    /* NOLINTEND(*-avoid-c-arrays) */
+};
+constexpr std::array speakerModeList{
+    NameValuePair{ "Autodetect", "" },
+    NameValuePair{ "Mono", "mono" },
+    NameValuePair{ "Stereo", "stereo" },
+    NameValuePair{ "Quadraphonic", "quad" },
+    NameValuePair{ "5.1 Surround", "surround51" },
+    NameValuePair{ "6.1 Surround", "surround61" },
+    NameValuePair{ "7.1 Surround", "surround71" },
+    NameValuePair{ "3D7.1 Surround", "surround3d71" },
 
-    { "Ambisonic, 1st Order", "ambi1" },
-    { "Ambisonic, 2nd Order", "ambi2" },
-    { "Ambisonic, 3rd Order", "ambi3" },
-
-    { "", "" }
-}, sampleTypeList[] = {
-    { "Autodetect", "" },
-    { "8-bit int", "int8" },
-    { "8-bit uint", "uint8" },
-    { "16-bit int", "int16" },
-    { "16-bit uint", "uint16" },
-    { "32-bit int", "int32" },
-    { "32-bit uint", "uint32" },
-    { "32-bit float", "float32" },
-
-    { "", "" }
-}, resamplerList[] = {
-    { "Point", "point" },
-    { "Linear", "linear" },
-    { "Default (Linear)", "" },
-    { "Cubic Spline", "cubic" },
-    { "11th order Sinc (fast)", "fast_bsinc12" },
-    { "11th order Sinc", "bsinc12" },
-    { "23rd order Sinc (fast)", "fast_bsinc24" },
-    { "23rd order Sinc", "bsinc24" },
-
-    { "", "" }
-}, stereoModeList[] = {
-    { "Autodetect", "" },
-    { "Speakers", "speakers" },
-    { "Headphones", "headphones" },
-
-    { "", "" }
-}, stereoEncList[] = {
-    { "Default", "" },
-    { "Pan Pot", "panpot" },
-    { "UHJ", "uhj" },
-
-    { "", "" }
-}, ambiFormatList[] = {
-    { "Default", "" },
-    { "AmbiX (ACN, SN3D)", "ambix" },
-    { "ACN, N3D", "acn+n3d" },
-    { "Furse-Malham", "fuma" },
-
-    { "", "" }
-}, hrtfModeList[] = {
-    { "1st Order Ambisonic", "ambi1" },
-    { "2nd Order Ambisonic", "ambi2" },
-    { "Default (Full)", "" },
-    { "Full", "full" },
-
-    { "", "" }
+    NameValuePair{ "Ambisonic, 1st Order", "ambi1" },
+    NameValuePair{ "Ambisonic, 2nd Order", "ambi2" },
+    NameValuePair{ "Ambisonic, 3rd Order", "ambi3" },
+};
+constexpr std::array sampleTypeList{
+    NameValuePair{ "Autodetect", "" },
+    NameValuePair{ "8-bit int", "int8" },
+    NameValuePair{ "8-bit uint", "uint8" },
+    NameValuePair{ "16-bit int", "int16" },
+    NameValuePair{ "16-bit uint", "uint16" },
+    NameValuePair{ "32-bit int", "int32" },
+    NameValuePair{ "32-bit uint", "uint32" },
+    NameValuePair{ "32-bit float", "float32" },
+};
+constexpr std::array resamplerList{
+    NameValuePair{ "Point", "point" },
+    NameValuePair{ "Linear", "linear" },
+    NameValuePair{ "Cubic Spline", "spline" },
+    NameValuePair{ "4-point Gaussian", "gaussian" },
+    NameValuePair{ "Default (4-point Gaussian)", "" },
+    NameValuePair{ "11th order Sinc (fast)", "fast_bsinc12" },
+    NameValuePair{ "11th order Sinc", "bsinc12" },
+    NameValuePair{ "23rd order Sinc (fast)", "fast_bsinc24" },
+    NameValuePair{ "23rd order Sinc", "bsinc24" },
+};
+constexpr std::array stereoModeList{
+    NameValuePair{ "Autodetect", "" },
+    NameValuePair{ "Speakers", "speakers" },
+    NameValuePair{ "Headphones", "headphones" },
+};
+constexpr std::array stereoEncList{
+    NameValuePair{ "Default", "" },
+    NameValuePair{ "Basic", "panpot" },
+    NameValuePair{ "UHJ", "uhj" },
+    NameValuePair{ "Binaural", "hrtf" },
+};
+constexpr std::array ambiFormatList{
+    NameValuePair{ "Default", "" },
+    NameValuePair{ "AmbiX (ACN, SN3D)", "ambix" },
+    NameValuePair{ "Furse-Malham", "fuma" },
+    NameValuePair{ "ACN, N3D", "acn+n3d" },
+    NameValuePair{ "ACN, FuMa", "acn+fuma" },
+};
+constexpr std::array hrtfModeList{
+    NameValuePair{ "1st Order Ambisonic", "ambi1" },
+    NameValuePair{ "2nd Order Ambisonic", "ambi2" },
+    NameValuePair{ "3rd Order Ambisonic", "ambi3" },
+    NameValuePair{ "Default (Full)", "" },
+    NameValuePair{ "Full", "full" },
 };
 
-static QString getDefaultConfigName()
+QString getDefaultConfigName()
 {
 #ifdef Q_OS_WIN32
-    static const char fname[] = "alsoft.ini";
+    const char *fname{"alsoft.ini"};
     auto get_appdata_path = []() noexcept -> QString
     {
-        WCHAR buffer[MAX_PATH];
-        if(SHGetSpecialFolderPathW(nullptr, buffer, CSIDL_APPDATA, FALSE) != FALSE)
-            return QString::fromWCharArray(buffer);
-        return QString();
+        QString ret;
+        WCHAR *buffer{};
+        if(const HRESULT hr{SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DONT_UNEXPAND,
+            nullptr, &buffer)}; SUCCEEDED(hr))
+            ret = QString::fromWCharArray(buffer);
+        CoTaskMemFree(buffer);
+        return ret;
     };
     QString base = get_appdata_path();
 #else
-    static const char fname[] = "alsoft.conf";
-    QByteArray base = qgetenv("XDG_CONFIG_HOME");
+    const char *fname{"alsoft.conf"};
+    QString base = qgetenv("XDG_CONFIG_HOME");
     if(base.isEmpty())
     {
         base = qgetenv("HOME");
@@ -167,19 +175,22 @@ static QString getDefaultConfigName()
     return fname;
 }
 
-static QString getBaseDataPath()
+QString getBaseDataPath()
 {
 #ifdef Q_OS_WIN32
     auto get_appdata_path = []() noexcept -> QString
     {
-        WCHAR buffer[MAX_PATH];
-        if(SHGetSpecialFolderPathW(nullptr, buffer, CSIDL_APPDATA, FALSE) != FALSE)
-            return QString::fromWCharArray(buffer);
-        return QString();
+        QString ret;
+        WCHAR *buffer{};
+        if(const HRESULT hr{SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DONT_UNEXPAND,
+            nullptr, &buffer)}; SUCCEEDED(hr))
+            ret = QString::fromWCharArray(buffer);
+        CoTaskMemFree(buffer);
+        return ret;
     };
     QString base = get_appdata_path();
 #else
-    QByteArray base = qgetenv("XDG_DATA_HOME");
+    QString base = qgetenv("XDG_DATA_HOME");
     if(base.isEmpty())
     {
         base = qgetenv("HOME");
@@ -190,7 +201,7 @@ static QString getBaseDataPath()
     return base;
 }
 
-static QStringList getAllDataPaths(const QString &append)
+QStringList getAllDataPaths(const QString &append)
 {
     QStringList list;
     list.append(getBaseDataPath());
@@ -200,7 +211,11 @@ static QStringList getAllDataPaths(const QString &append)
     QString paths = qgetenv("XDG_DATA_DIRS");
     if(paths.isEmpty())
         paths = "/usr/local/share/:/usr/share/";
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    list += paths.split(QChar(':'), Qt::SkipEmptyParts);
+#else
     list += paths.split(QChar(':'), QString::SkipEmptyParts);
+#endif
 #endif
     QStringList::iterator iter = list.begin();
     while(iter != list.end())
@@ -216,24 +231,22 @@ static QStringList getAllDataPaths(const QString &append)
     return list;
 }
 
-template<size_t N>
-static QString getValueFromName(const NameValuePair (&list)[N], const QString &str)
+QString getValueFromName(const al::span<const NameValuePair> list, const QString &str)
 {
-    for(size_t i = 0;i < N-1;i++)
+    for(size_t i{0};i < list.size();++i)
     {
-        if(str == list[i].name)
-            return list[i].value;
+        if(str == std::data(list[i].name))
+            return std::data(list[i].value);
     }
     return QString{};
 }
 
-template<size_t N>
-static QString getNameFromValue(const NameValuePair (&list)[N], const QString &str)
+QString getNameFromValue(const al::span<const NameValuePair> list, const QString &str)
 {
-    for(size_t i = 0;i < N-1;i++)
+    for(size_t i{0};i < list.size();++i)
     {
-        if(str == list[i].value)
-            return list[i].name;
+        if(str == std::data(list[i].value))
+            return std::data(list[i].name);
     }
     return QString{};
 }
@@ -260,45 +273,29 @@ QString getCheckValue(const QCheckBox *checkbox)
 
 }
 
-MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::MainWindow),
-    mPeriodSizeValidator(nullptr),
-    mPeriodCountValidator(nullptr),
-    mSourceCountValidator(nullptr),
-    mEffectSlotValidator(nullptr),
-    mSourceSendValidator(nullptr),
-    mSampleRateValidator(nullptr),
-    mJackBufferValidator(nullptr),
-    mNeedsSave(false)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow{parent}
+    , ui{std::make_unique<Ui::MainWindow>()}
 {
     ui->setupUi(this);
 
-    for(int i = 0;speakerModeList[i].name[0];i++)
-        ui->channelConfigCombo->addItem(speakerModeList[i].name);
+    for(auto &item : speakerModeList)
+        ui->channelConfigCombo->addItem(std::data(item.name));
     ui->channelConfigCombo->adjustSize();
-    for(int i = 0;sampleTypeList[i].name[0];i++)
-        ui->sampleFormatCombo->addItem(sampleTypeList[i].name);
+    for(auto &item : sampleTypeList)
+        ui->sampleFormatCombo->addItem(std::data(item.name));
     ui->sampleFormatCombo->adjustSize();
-    for(int i = 0;stereoModeList[i].name[0];i++)
-        ui->stereoModeCombo->addItem(stereoModeList[i].name);
+    for(auto &item : stereoModeList)
+        ui->stereoModeCombo->addItem(std::data(item.name));
     ui->stereoModeCombo->adjustSize();
-    for(int i = 0;stereoEncList[i].name[0];i++)
-        ui->stereoEncodingComboBox->addItem(stereoEncList[i].name);
+    for(auto &item : stereoEncList)
+        ui->stereoEncodingComboBox->addItem(std::data(item.name));
     ui->stereoEncodingComboBox->adjustSize();
-    for(int i = 0;ambiFormatList[i].name[0];i++)
-        ui->ambiFormatComboBox->addItem(ambiFormatList[i].name);
+    for(auto &item : ambiFormatList)
+        ui->ambiFormatComboBox->addItem(std::data(item.name));
     ui->ambiFormatComboBox->adjustSize();
 
-    int count;
-    for(count = 0;resamplerList[count].name[0];count++) {
-    }
-    ui->resamplerSlider->setRange(0, count-1);
-
-    for(count = 0;hrtfModeList[count].name[0];count++) {
-    }
-    ui->hrtfmodeSlider->setRange(0, count-1);
-    ui->hrtfStateComboBox->adjustSize();
+    ui->resamplerSlider->setRange(0, resamplerList.size()-1);
+    ui->hrtfmodeSlider->setRange(0, hrtfModeList.size()-1);
 
 #if !defined(HAVE_NEON) && !defined(HAVE_SSE)
     ui->cpuExtDisabledLabel->move(ui->cpuExtDisabledLabel->x(), ui->cpuExtDisabledLabel->y() - 60);
@@ -340,22 +337,28 @@ MainWindow::MainWindow(QWidget *parent) :
 
 #endif
 
-    mPeriodSizeValidator = new QIntValidator{64, 8192, this};
-    ui->periodSizeEdit->setValidator(mPeriodSizeValidator);
-    mPeriodCountValidator = new QIntValidator{2, 16, this};
-    ui->periodCountEdit->setValidator(mPeriodCountValidator);
+#ifndef ALSOFT_EAX
+    ui->enableEaxCheck->setChecked(Qt::Unchecked);
+    ui->enableEaxCheck->setEnabled(false);
+    ui->enableEaxCheck->setVisible(false);
+#endif
 
-    mSourceCountValidator = new QIntValidator{0, 4096, this};
-    ui->srcCountLineEdit->setValidator(mSourceCountValidator);
-    mEffectSlotValidator = new QIntValidator{0, 64, this};
-    ui->effectSlotLineEdit->setValidator(mEffectSlotValidator);
-    mSourceSendValidator = new QIntValidator{0, 16, this};
-    ui->srcSendLineEdit->setValidator(mSourceSendValidator);
-    mSampleRateValidator = new QIntValidator{8000, 192000, this};
-    ui->sampleRateCombo->lineEdit()->setValidator(mSampleRateValidator);
+    mPeriodSizeValidator = std::make_unique<QIntValidator>(64, 8192, this);
+    ui->periodSizeEdit->setValidator(mPeriodSizeValidator.get());
+    mPeriodCountValidator = std::make_unique<QIntValidator>(2, 16, this);
+    ui->periodCountEdit->setValidator(mPeriodCountValidator.get());
 
-    mJackBufferValidator = new QIntValidator{0, 8192, this};
-    ui->jackBufferSizeLine->setValidator(mJackBufferValidator);
+    mSourceCountValidator = std::make_unique<QIntValidator>(0, 4096, this);
+    ui->srcCountLineEdit->setValidator(mSourceCountValidator.get());
+    mEffectSlotValidator = std::make_unique<QIntValidator>(0, 64, this);
+    ui->effectSlotLineEdit->setValidator(mEffectSlotValidator.get());
+    mSourceSendValidator = std::make_unique<QIntValidator>(0, 16, this);
+    ui->srcSendLineEdit->setValidator(mSourceSendValidator.get());
+    mSampleRateValidator = std::make_unique<QIntValidator>(8000, 192000, this);
+    ui->sampleRateCombo->lineEdit()->setValidator(mSampleRateValidator.get());
+
+    mJackBufferValidator = std::make_unique<QIntValidator>(0, 8192, this);
+    ui->jackBufferSizeLine->setValidator(mJackBufferValidator.get());
 
     connect(ui->actionLoad, &QAction::triggered, this, &MainWindow::loadConfigFromFile);
     connect(ui->actionSave_As, &QAction::triggered, this, &MainWindow::saveConfigAsFile);
@@ -365,11 +368,11 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->closeCancelButton, &QPushButton::clicked, this, &MainWindow::cancelCloseAction);
     connect(ui->applyButton, &QPushButton::clicked, this, &MainWindow::saveCurrentConfig);
 
-    auto qcb_cicstr = static_cast<void(QComboBox::*)(const QString&)>(&QComboBox::currentIndexChanged);
-    connect(ui->channelConfigCombo, qcb_cicstr, this, &MainWindow::enableApplyButton);
-    connect(ui->sampleFormatCombo, qcb_cicstr, this, &MainWindow::enableApplyButton);
-    connect(ui->stereoModeCombo, qcb_cicstr, this, &MainWindow::enableApplyButton);
-    connect(ui->sampleRateCombo, qcb_cicstr, this, &MainWindow::enableApplyButton);
+    auto qcb_cicint = static_cast<void(QComboBox::*)(int)>(&QComboBox::currentIndexChanged);
+    connect(ui->channelConfigCombo, qcb_cicint, this, &MainWindow::enableApplyButton);
+    connect(ui->sampleFormatCombo, qcb_cicint, this, &MainWindow::enableApplyButton);
+    connect(ui->stereoModeCombo, qcb_cicint, this, &MainWindow::enableApplyButton);
+    connect(ui->sampleRateCombo, qcb_cicint, this, &MainWindow::enableApplyButton);
     connect(ui->sampleRateCombo, &QComboBox::editTextChanged, this, &MainWindow::enableApplyButton);
 
     connect(ui->resamplerSlider, &QSlider::valueChanged, this, &MainWindow::updateResamplerLabel);
@@ -379,8 +382,8 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->periodCountSlider, &QSlider::valueChanged, this, &MainWindow::updatePeriodCountEdit);
     connect(ui->periodCountEdit, &QLineEdit::editingFinished, this, &MainWindow::updatePeriodCountSlider);
 
-    connect(ui->stereoEncodingComboBox, qcb_cicstr, this, &MainWindow::enableApplyButton);
-    connect(ui->ambiFormatComboBox, qcb_cicstr, this, &MainWindow::enableApplyButton);
+    connect(ui->stereoEncodingComboBox, qcb_cicint, this, &MainWindow::enableApplyButton);
+    connect(ui->ambiFormatComboBox, qcb_cicint, this, &MainWindow::enableApplyButton);
     connect(ui->outputLimiterCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->outputDitherCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
 
@@ -388,7 +391,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->decoderDistCompCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->decoderNFEffectsCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     auto qdsb_vcd = static_cast<void(QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged);
-    connect(ui->decoderNFRefDelaySpinBox, qdsb_vcd, this, &MainWindow::enableApplyButton);
+    connect(ui->decoderSpeakerDistSpinBox, qdsb_vcd, this, &MainWindow::enableApplyButton);
     connect(ui->decoderQuadLineEdit, &QLineEdit::textChanged, this, &MainWindow::enableApplyButton);
     connect(ui->decoderQuadButton, &QPushButton::clicked, this, &MainWindow::selectQuadDecoderFile);
     connect(ui->decoder51LineEdit, &QLineEdit::textChanged, this, &MainWindow::enableApplyButton);
@@ -397,9 +400,10 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->decoder61Button, &QPushButton::clicked, this, &MainWindow::select61DecoderFile);
     connect(ui->decoder71LineEdit, &QLineEdit::textChanged, this, &MainWindow::enableApplyButton);
     connect(ui->decoder71Button, &QPushButton::clicked, this, &MainWindow::select71DecoderFile);
+    connect(ui->decoder3D71LineEdit, &QLineEdit::textChanged, this, &MainWindow::enableApplyButton);
+    connect(ui->decoder3D71Button, &QPushButton::clicked, this, &MainWindow::select3D71DecoderFile);
 
-    connect(ui->preferredHrtfComboBox, qcb_cicstr, this, &MainWindow::enableApplyButton);
-    connect(ui->hrtfStateComboBox, qcb_cicstr, this, &MainWindow::enableApplyButton);
+    connect(ui->preferredHrtfComboBox, qcb_cicint, this, &MainWindow::enableApplyButton);
     connect(ui->hrtfmodeSlider, &QSlider::valueChanged, this, &MainWindow::updateHrtfModeLabel);
 
     connect(ui->hrtfAddButton, &QPushButton::clicked, this, &MainWindow::addHrtfFile);
@@ -424,7 +428,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->disabledBackendList, &QListWidget::customContextMenuRequested, this, &MainWindow::showDisabledBackendMenu);
     connect(ui->backendCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
 
-    connect(ui->defaultReverbComboBox, qcb_cicstr, this, &MainWindow::enableApplyButton);
+    connect(ui->defaultReverbComboBox, qcb_cicint, this, &MainWindow::enableApplyButton);
     connect(ui->enableEaxReverbCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->enableStdReverbCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->enableAutowahCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
@@ -439,14 +443,21 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->enableDedicatedCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->enablePitchShifterCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->enableVocalMorpherCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
+    connect(ui->enableEaxCheck, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
 
     connect(ui->pulseAutospawnCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->pulseAllowMovesCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->pulseFixRateCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->pulseAdjLatencyCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
 
+    connect(ui->pwireAssumeAudioCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
+    connect(ui->pwireRtMixCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
+
+    connect(ui->wasapiResamplerCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
+
     connect(ui->jackAutospawnCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->jackConnectPortsCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
+    connect(ui->jackRtMixCheckBox, &QCheckBox::stateChanged, this, &MainWindow::enableApplyButton);
     connect(ui->jackBufferSizeSlider, &QSlider::valueChanged, this, &MainWindow::updateJackBufferSizeEdit);
     connect(ui->jackBufferSizeLine, &QLineEdit::editingFinished, this, &MainWindow::updateJackBufferSizeSlider);
 
@@ -472,10 +483,10 @@ MainWindow::MainWindow(QWidget *parent) :
 
     for(int i = 1;i < ui->backendListWidget->count();i++)
         ui->backendListWidget->setRowHidden(i, true);
-    for(int i = 0;backendList[i].backend_name[0];i++)
+    for(size_t i{0};i < backendList.size();++i)
     {
         QList<QListWidgetItem*> items = ui->backendListWidget->findItems(
-            backendList[i].full_string, Qt::MatchFixedString);
+            std::data(backendList[i].full_string), Qt::MatchFixedString);
         foreach(QListWidgetItem *item, items)
             item->setHidden(false);
     }
@@ -483,17 +494,7 @@ MainWindow::MainWindow(QWidget *parent) :
     loadConfig(getDefaultConfigName());
 }
 
-MainWindow::~MainWindow()
-{
-    delete ui;
-    delete mPeriodSizeValidator;
-    delete mPeriodCountValidator;
-    delete mSourceCountValidator;
-    delete mEffectSlotValidator;
-    delete mSourceSendValidator;
-    delete mSampleRateValidator;
-    delete mJackBufferValidator;
-}
+MainWindow::~MainWindow() = default;
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
@@ -560,7 +561,7 @@ QStringList MainWindow::collectHrtfs()
                         break;
                     }
                     ++i;
-                } while(1);
+                } while(true);
             }
         }
     }
@@ -595,7 +596,7 @@ QStringList MainWindow::collectHrtfs()
                             break;
                         }
                         ++i;
-                    } while(1);
+                    } while(true);
                 }
             }
         }
@@ -635,6 +636,8 @@ void MainWindow::loadConfig(const QString &fname)
     ui->channelConfigCombo->setCurrentIndex(0);
     if(channelconfig.isEmpty() == false)
     {
+        if(channelconfig == "surround51rear")
+            channelconfig = "surround51";
         QString str{getNameFromValue(speakerModeList, channelconfig)};
         if(!str.isEmpty())
         {
@@ -661,21 +664,21 @@ void MainWindow::loadConfig(const QString &fname)
 
     QString resampler = settings.value("resampler").toString().trimmed();
     ui->resamplerSlider->setValue(2);
-    ui->resamplerLabel->setText(resamplerList[2].name);
-    /* The "sinc4" and "sinc8" resamplers are no longer supported. Use "cubic"
-     * as a fallback.
+    ui->resamplerLabel->setText(std::data(resamplerList[2].name));
+    /* "Cubic" is an alias for the 4-point gaussian resampler. The "sinc4" and
+     * "sinc8" resamplers are unsupported, use "gaussian" as a fallback.
      */
-    if(resampler == "sinc4" || resampler == "sinc8")
-        resampler = "cubic";
+    if(resampler == "cubic" || resampler == "sinc4" || resampler == "sinc8")
+        resampler = "gaussian";
     /* The "bsinc" resampler name is an alias for "bsinc12". */
     else if(resampler == "bsinc")
         resampler = "bsinc12";
     for(int i = 0;resamplerList[i].name[0];i++)
     {
-        if(resampler == resamplerList[i].value)
+        if(resampler == std::data(resamplerList[i].value))
         {
             ui->resamplerSlider->setValue(i);
-            ui->resamplerLabel->setText(resamplerList[i].name);
+            ui->resamplerLabel->setText(std::data(resamplerList[i].name));
             break;
         }
     }
@@ -735,17 +738,17 @@ void MainWindow::loadConfig(const QString &fname)
         }
     }
 
-    bool hqmode{settings.value("decoder/hq-mode", true).toBool()};
-    ui->decoderHQModeCheckBox->setChecked(hqmode);
+    ui->decoderHQModeCheckBox->setChecked(getCheckState(settings.value("decoder/hq-mode")));
     ui->decoderDistCompCheckBox->setCheckState(getCheckState(settings.value("decoder/distance-comp")));
     ui->decoderNFEffectsCheckBox->setCheckState(getCheckState(settings.value("decoder/nfc")));
-    double refdelay{settings.value("decoder/nfc-ref-delay", 0.0).toDouble()};
-    ui->decoderNFRefDelaySpinBox->setValue(refdelay);
+    double speakerdist{settings.value("decoder/speaker-dist", 1.0).toDouble()};
+    ui->decoderSpeakerDistSpinBox->setValue(speakerdist);
 
     ui->decoderQuadLineEdit->setText(settings.value("decoder/quad").toString());
     ui->decoder51LineEdit->setText(settings.value("decoder/surround51").toString());
     ui->decoder61LineEdit->setText(settings.value("decoder/surround61").toString());
     ui->decoder71LineEdit->setText(settings.value("decoder/surround71").toString());
+    ui->decoder3D71LineEdit->setText(settings.value("decoder/surround3d71").toString());
 
     QStringList disabledCpuExts{settings.value("disable-cpu-exts").toStringList()};
     if(disabledCpuExts.size() == 1)
@@ -760,18 +763,16 @@ void MainWindow::loadConfig(const QString &fname)
 
     QString hrtfmode{settings.value("hrtf-mode").toString().trimmed()};
     ui->hrtfmodeSlider->setValue(2);
-    ui->hrtfmodeLabel->setText(hrtfModeList[2].name);
-    /* The "basic" mode name is no longer supported, and "ambi3" is temporarily
-     * disabled. Use "ambi2" instead.
-     */
-    if(hrtfmode == "basic" || hrtfmode == "ambi3")
+    ui->hrtfmodeLabel->setText(std::data(hrtfModeList[3].name));
+    /* The "basic" mode name is no longer supported. Use "ambi2" instead. */
+    if(hrtfmode == "basic")
         hrtfmode = "ambi2";
-    for(int i = 0;hrtfModeList[i].name[0];i++)
+    for(size_t i{0};i < hrtfModeList.size();++i)
     {
-        if(hrtfmode == hrtfModeList[i].value)
+        if(hrtfmode == std::data(hrtfModeList[i].value))
         {
-            ui->hrtfmodeSlider->setValue(i);
-            ui->hrtfmodeLabel->setText(hrtfModeList[i].name);
+            ui->hrtfmodeSlider->setValue(static_cast<int>(i));
+            ui->hrtfmodeLabel->setText(std::data(hrtfModeList[i].name));
             break;
         }
     }
@@ -792,14 +793,6 @@ void MainWindow::loadConfig(const QString &fname)
     ui->hrtfFileList->clear();
     ui->hrtfFileList->addItems(hrtf_paths);
     updateHrtfRemoveButton();
-
-    QString hrtfstate{settings.value("hrtf").toString().toLower()};
-    if(hrtfstate == "true")
-        ui->hrtfStateComboBox->setCurrentIndex(1);
-    else if(hrtfstate == "false")
-        ui->hrtfStateComboBox->setCurrentIndex(2);
-    else
-        ui->hrtfStateComboBox->setCurrentIndex(0);
 
     ui->preferredHrtfComboBox->clear();
     ui->preferredHrtfComboBox->addItem("- Any -");
@@ -829,7 +822,7 @@ void MainWindow::loadConfig(const QString &fname)
     ui->enabledBackendList->clear();
     ui->disabledBackendList->clear();
     QStringList drivers{settings.value("drivers").toStringList()};
-    if(drivers.size() == 0)
+    if(drivers.empty())
         ui->backendCheckBox->setChecked(true);
     else
     {
@@ -854,22 +847,24 @@ void MainWindow::loadConfig(const QString &fname)
             if(lastWasEmpty) continue;
 
             if(!backend.startsWith(QChar('-')))
-                for(int j = 0;backendList[j].backend_name[0];j++)
+            {
+                for(size_t j{0};j < backendList.size();++j)
                 {
-                    if(backend == backendList[j].backend_name)
+                    if(backend == std::data(backendList[j].backend_name))
                     {
-                        ui->enabledBackendList->addItem(backendList[j].full_string);
+                        ui->enabledBackendList->addItem(std::data(backendList[j].full_string));
                         break;
                     }
                 }
+            }
             else if(backend.size() > 1)
             {
                 QStringRef backendref{backend.rightRef(backend.size()-1)};
-                for(int j = 0;backendList[j].backend_name[0];j++)
+                for(size_t j{0};j < backendList.size();++j)
                 {
-                    if(backendref == backendList[j].backend_name)
+                    if(backendref == std::data(backendList[j].backend_name))
                     {
-                        ui->disabledBackendList->addItem(backendList[j].full_string);
+                        ui->disabledBackendList->addItem(std::data(backendList[j].full_string));
                         break;
                     }
                 }
@@ -911,14 +906,22 @@ void MainWindow::loadConfig(const QString &fname)
     ui->enableDedicatedCheck->setChecked(!excludefx.contains("dedicated", Qt::CaseInsensitive));
     ui->enablePitchShifterCheck->setChecked(!excludefx.contains("pshifter", Qt::CaseInsensitive));
     ui->enableVocalMorpherCheck->setChecked(!excludefx.contains("vmorpher", Qt::CaseInsensitive));
+    if(ui->enableEaxCheck->isEnabled())
+        ui->enableEaxCheck->setChecked(getCheckState(settings.value("eax/enable")) != Qt::Unchecked);
 
     ui->pulseAutospawnCheckBox->setCheckState(getCheckState(settings.value("pulse/spawn-server")));
     ui->pulseAllowMovesCheckBox->setCheckState(getCheckState(settings.value("pulse/allow-moves")));
     ui->pulseFixRateCheckBox->setCheckState(getCheckState(settings.value("pulse/fix-rate")));
     ui->pulseAdjLatencyCheckBox->setCheckState(getCheckState(settings.value("pulse/adjust-latency")));
 
+    ui->pwireAssumeAudioCheckBox->setCheckState(getCheckState(settings.value("pipewire/assume-audio")));
+    ui->pwireRtMixCheckBox->setCheckState(getCheckState(settings.value("pipewire/rt-mix")));
+
+    ui->wasapiResamplerCheckBox->setCheckState(getCheckState(settings.value("wasapi/allow-resampler")));
+
     ui->jackAutospawnCheckBox->setCheckState(getCheckState(settings.value("jack/spawn-server")));
     ui->jackConnectPortsCheckBox->setCheckState(getCheckState(settings.value("jack/connect-ports")));
+    ui->jackRtMixCheckBox->setCheckState(getCheckState(settings.value("jack/rt-mix")));
     ui->jackBufferSizeLine->setText(settings.value("jack/buffer-size", QString()).toString());
     updateJackBufferSizeSlider();
 
@@ -989,7 +992,7 @@ void MainWindow::saveConfig(const QString &fname) const
     settings.setValue("sources", ui->srcCountLineEdit->text());
     settings.setValue("slots", ui->effectSlotLineEdit->text());
 
-    settings.setValue("resampler", resamplerList[ui->resamplerSlider->value()].value);
+    settings.setValue("resampler", std::data(resamplerList[ui->resamplerSlider->value()].value));
 
     settings.setValue("stereo-mode", getValueFromName(stereoModeList, ui->stereoModeCombo->currentText()));
     settings.setValue("stereo-encoding", getValueFromName(stereoEncList, ui->stereoEncodingComboBox->currentText()));
@@ -998,20 +1001,19 @@ void MainWindow::saveConfig(const QString &fname) const
     settings.setValue("output-limiter", getCheckValue(ui->outputLimiterCheckBox));
     settings.setValue("dither", getCheckValue(ui->outputDitherCheckBox));
 
-    settings.setValue("decoder/hq-mode",
-        ui->decoderHQModeCheckBox->isChecked() ? QString{/*"true"*/} : QString{"false"}
-    );
+    settings.setValue("decoder/hq-mode", getCheckValue(ui->decoderHQModeCheckBox));
     settings.setValue("decoder/distance-comp", getCheckValue(ui->decoderDistCompCheckBox));
     settings.setValue("decoder/nfc", getCheckValue(ui->decoderNFEffectsCheckBox));
-    double refdelay = ui->decoderNFRefDelaySpinBox->value();
-    settings.setValue("decoder/nfc-ref-delay",
-        (refdelay > 0.0) ? QString::number(refdelay) : QString{}
+    double speakerdist{ui->decoderSpeakerDistSpinBox->value()};
+    settings.setValue("decoder/speaker-dist",
+        (speakerdist != 1.0) ? QString::number(speakerdist) : QString{}
     );
 
     settings.setValue("decoder/quad", ui->decoderQuadLineEdit->text());
     settings.setValue("decoder/surround51", ui->decoder51LineEdit->text());
     settings.setValue("decoder/surround61", ui->decoder61LineEdit->text());
     settings.setValue("decoder/surround71", ui->decoder71LineEdit->text());
+    settings.setValue("decoder/surround3d71", ui->decoder3D71LineEdit->text());
 
     QStringList strlist;
     if(!ui->enableSSECheckBox->isChecked())
@@ -1026,14 +1028,7 @@ void MainWindow::saveConfig(const QString &fname) const
         strlist.append("neon");
     settings.setValue("disable-cpu-exts", strlist.join(QChar(',')));
 
-    settings.setValue("hrtf-mode", hrtfModeList[ui->hrtfmodeSlider->value()].value);
-
-    if(ui->hrtfStateComboBox->currentIndex() == 1)
-        settings.setValue("hrtf", "true");
-    else if(ui->hrtfStateComboBox->currentIndex() == 2)
-        settings.setValue("hrtf", "false");
-    else
-        settings.setValue("hrtf", QString{});
+    settings.setValue("hrtf-mode", std::data(hrtfModeList[ui->hrtfmodeSlider->value()].value));
 
     if(ui->preferredHrtfComboBox->currentIndex() == 0)
         settings.setValue("default-hrtf", QString{});
@@ -1055,11 +1050,11 @@ void MainWindow::saveConfig(const QString &fname) const
     for(int i = 0;i < ui->enabledBackendList->count();i++)
     {
         QString label{ui->enabledBackendList->item(i)->text()};
-        for(int j = 0;backendList[j].backend_name[0];j++)
+        for(size_t j{0};j < backendList.size();++j)
         {
-            if(label == backendList[j].full_string)
+            if(label == std::data(backendList[j].full_string))
             {
-                strlist.append(backendList[j].backend_name);
+                strlist.append(std::data(backendList[j].backend_name));
                 break;
             }
         }
@@ -1067,16 +1062,16 @@ void MainWindow::saveConfig(const QString &fname) const
     for(int i = 0;i < ui->disabledBackendList->count();i++)
     {
         QString label{ui->disabledBackendList->item(i)->text()};
-        for(int j = 0;backendList[j].backend_name[0];j++)
+        for(size_t j{0};j < backendList.size();++j)
         {
-            if(label == backendList[j].full_string)
+            if(label == std::data(backendList[j].full_string))
             {
-                strlist.append(QChar{'-'}+QString{backendList[j].backend_name});
+                strlist.append(QChar{'-'}+QString{std::data(backendList[j].backend_name)});
                 break;
             }
         }
     }
-    if(strlist.size() == 0 && !ui->backendCheckBox->isChecked())
+    if(strlist.empty() && !ui->backendCheckBox->isChecked())
         strlist.append("-all");
     else if(ui->backendCheckBox->isChecked())
         strlist.append(QString{});
@@ -1121,6 +1116,14 @@ void MainWindow::saveConfig(const QString &fname) const
     if(!ui->enableVocalMorpherCheck->isChecked())
         strlist.append("vmorpher");
     settings.setValue("excludefx", strlist.join(QChar{','}));
+    settings.setValue("eax/enable",
+        (!ui->enableEaxCheck->isEnabled() || ui->enableEaxCheck->isChecked())
+        ? QString{/*"true"*/} : QString{"false"});
+
+    settings.setValue("pipewire/assume-audio", getCheckValue(ui->pwireAssumeAudioCheckBox));
+    settings.setValue("pipewire/rt-mix", getCheckValue(ui->pwireRtMixCheckBox));
+
+    settings.setValue("wasapi/allow-resampler", getCheckValue(ui->wasapiResamplerCheckBox));
 
     settings.setValue("pulse/spawn-server", getCheckValue(ui->pulseAutospawnCheckBox));
     settings.setValue("pulse/allow-moves", getCheckValue(ui->pulseAllowMovesCheckBox));
@@ -1129,6 +1132,7 @@ void MainWindow::saveConfig(const QString &fname) const
 
     settings.setValue("jack/spawn-server", getCheckValue(ui->jackAutospawnCheckBox));
     settings.setValue("jack/connect-ports", getCheckValue(ui->jackConnectPortsCheckBox));
+    settings.setValue("jack/rt-mix", getCheckValue(ui->jackRtMixCheckBox));
     settings.setValue("jack/buffer-size", ui->jackBufferSizeLine->text());
 
     settings.setValue("alsa/device", ui->alsaDefaultDeviceLine->text());
@@ -1170,7 +1174,7 @@ void MainWindow::enableApplyButton()
 
 void MainWindow::updateResamplerLabel(int num)
 {
-    ui->resamplerLabel->setText(resamplerList[num].name);
+    ui->resamplerLabel->setText(std::data(resamplerList[num].name));
     enableApplyButton();
 }
 
@@ -1223,6 +1227,8 @@ void MainWindow::select61DecoderFile()
 { selectDecoderFile(ui->decoder61LineEdit, "Select 6.1 Surround Decoder");}
 void MainWindow::select71DecoderFile()
 { selectDecoderFile(ui->decoder71LineEdit, "Select 7.1 Surround Decoder");}
+void MainWindow::select3D71DecoderFile()
+{ selectDecoderFile(ui->decoder3D71LineEdit, "Select 3D7.1 Surround Decoder");}
 void MainWindow::selectDecoderFile(QLineEdit *line, const char *caption)
 {
     QString dir{line->text()};
@@ -1268,7 +1274,7 @@ void MainWindow::updateJackBufferSizeSlider()
 
 void MainWindow::updateHrtfModeLabel(int num)
 {
-    ui->hrtfmodeLabel->setText(hrtfModeList[num].name);
+    ui->hrtfmodeLabel->setText(std::data(hrtfModeList[static_cast<uint>(num)].name));
     enableApplyButton();
 }
 
@@ -1285,18 +1291,17 @@ void MainWindow::addHrtfFile()
 
 void MainWindow::removeHrtfFile()
 {
-    QList<QListWidgetItem*> selected{ui->hrtfFileList->selectedItems()};
+    QList<gsl::owner<QListWidgetItem*>> selected{ui->hrtfFileList->selectedItems()};
     if(!selected.isEmpty())
     {
-        foreach(QListWidgetItem *item, selected)
-            delete item;
+        std::for_each(selected.begin(), selected.end(), std::default_delete<QListWidgetItem>{});
         enableApplyButton();
     }
 }
 
 void MainWindow::updateHrtfRemoveButton()
 {
-    ui->hrtfRemoveButton->setEnabled(ui->hrtfFileList->selectedItems().size() != 0);
+    ui->hrtfRemoveButton->setEnabled(!ui->hrtfFileList->selectedItems().empty());
 }
 
 void MainWindow::showEnabledBackendMenu(QPoint pt)
@@ -1307,25 +1312,24 @@ void MainWindow::showEnabledBackendMenu(QPoint pt)
 
     QMenu ctxmenu;
     QAction *removeAction{ctxmenu.addAction(QIcon::fromTheme("list-remove"), "Remove")};
-    if(ui->enabledBackendList->selectedItems().size() == 0)
+    if(ui->enabledBackendList->selectedItems().empty())
         removeAction->setEnabled(false);
     ctxmenu.addSeparator();
-    for(size_t i = 0;backendList[i].backend_name[0];i++)
+    for(size_t i{0};i < backendList.size();++i)
     {
-        QString backend{backendList[i].full_string};
+        QString backend{std::data(backendList[i].full_string)};
         QAction *action{ctxmenu.addAction(QString("Add ")+backend)};
         actionMap[action] = backend;
-        if(ui->enabledBackendList->findItems(backend, Qt::MatchFixedString).size() != 0 ||
-           ui->disabledBackendList->findItems(backend, Qt::MatchFixedString).size() != 0)
+        if(!ui->enabledBackendList->findItems(backend, Qt::MatchFixedString).empty() ||
+           !ui->disabledBackendList->findItems(backend, Qt::MatchFixedString).empty())
             action->setEnabled(false);
     }
 
     QAction *gotAction{ctxmenu.exec(pt)};
     if(gotAction == removeAction)
     {
-        QList<QListWidgetItem*> selected{ui->enabledBackendList->selectedItems()};
-        foreach(QListWidgetItem *item, selected)
-            delete item;
+        QList<gsl::owner<QListWidgetItem*>> selected{ui->enabledBackendList->selectedItems()};
+        std::for_each(selected.begin(), selected.end(), std::default_delete<QListWidgetItem>{});
         enableApplyButton();
     }
     else if(gotAction != nullptr)
@@ -1345,25 +1349,24 @@ void MainWindow::showDisabledBackendMenu(QPoint pt)
 
     QMenu ctxmenu;
     QAction *removeAction{ctxmenu.addAction(QIcon::fromTheme("list-remove"), "Remove")};
-    if(ui->disabledBackendList->selectedItems().size() == 0)
+    if(ui->disabledBackendList->selectedItems().empty())
         removeAction->setEnabled(false);
     ctxmenu.addSeparator();
-    for(size_t i = 0;backendList[i].backend_name[0];i++)
+    for(size_t i{0};i < backendList.size();++i)
     {
-        QString backend{backendList[i].full_string};
+        QString backend{std::data(backendList[i].full_string)};
         QAction *action{ctxmenu.addAction(QString("Add ")+backend)};
         actionMap[action] = backend;
-        if(ui->disabledBackendList->findItems(backend, Qt::MatchFixedString).size() != 0 ||
-           ui->enabledBackendList->findItems(backend, Qt::MatchFixedString).size() != 0)
+        if(!ui->disabledBackendList->findItems(backend, Qt::MatchFixedString).empty() ||
+           !ui->enabledBackendList->findItems(backend, Qt::MatchFixedString).empty())
             action->setEnabled(false);
     }
 
     QAction *gotAction{ctxmenu.exec(pt)};
     if(gotAction == removeAction)
     {
-        QList<QListWidgetItem*> selected{ui->disabledBackendList->selectedItems()};
-        foreach(QListWidgetItem *item, selected)
-            delete item;
+        QList<gsl::owner<QListWidgetItem*>> selected{ui->disabledBackendList->selectedItems()};
+        std::for_each(selected.begin(), selected.end(), std::default_delete<QListWidgetItem>{});
         enableApplyButton();
     }
     else if(gotAction != nullptr)
