@@ -7,14 +7,15 @@ LOCAL_MODULE    := openal
 # LOCAL_CFLAGS := -DCPU_EXTS=Default -DHAVE_OPENSL=1
 LOCAL_SRC_FILES := \
     common/alcomplex.cpp \
-    common/alexcpt.cpp \
-    common/alfstream.cpp \
-    common/almalloc.cpp \
+    common/alassert.cpp \
+    common/alsem.cpp \
     common/alstring.cpp \
+    common/althrd_setname.cpp \
     common/dynload.cpp \
+    common/pffft.cpp \
     common/polyphase_resampler.cpp \
+    common/ringbuffer.cpp \
     common/strutils.cpp \
-    common/threads.cpp \
     al/auxeffectslot.cpp \
     al/buffer.cpp \
     al/effect.cpp \
@@ -71,7 +72,7 @@ LOCAL_SRC_FILES := \
 #   alc/mixer/mixer_neon.cpp.neon \
     
 LOCAL_CFLAGS := -fexceptions -DANDROID -pipe -integrated-as -fno-plt -Ofast -flto -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce # -mfpu=neon
-LOCAL_LDLIBS := -llog -lOpenSLES
+LOCAL_LDLIBS := -ldl -llog -lOpenSLES
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include $(LOCAL_PATH)/include/AL $(LOCAL_PATH)/alc $(LOCAL_PATH)/common
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 
