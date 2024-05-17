@@ -105,7 +105,7 @@ void PrintCompatibleLayout(const al::span<const float> xyzs)
 }
 
 // Load and inspect the given SOFA file.
-void SofaInfo(const std::string filename)
+void SofaInfo(const std::string &filename)
 {
     int err;
     MySofaHrtfPtr sofa{mysofa_load(filename.c_str(), &err)};
@@ -153,7 +153,7 @@ int main(al::span<std::string_view> args)
 
 } /* namespace */
 
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
     assert(argc >= 0);
     auto args = std::vector<std::string_view>(static_cast<unsigned int>(argc));

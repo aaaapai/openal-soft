@@ -92,10 +92,9 @@ void fwrite32le(uint val, FILE *f)
     fwrite(data.data(), 1, data.size(), f);
 }
 
-byte4 f32AsLEBytes(const float &value)
+byte4 f32AsLEBytes(const float value)
 {
-    byte4 ret{};
-    std::memcpy(ret.data(), &value, 4);
+    auto ret = al::bit_cast<byte4>(value);
     if constexpr(al::endian::native == al::endian::big)
     {
         std::swap(ret[0], ret[3]);
@@ -541,7 +540,7 @@ int main(al::span<std::string_view> args)
 
 } /* namespace */
 
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
     assert(argc >= 0);
     auto args = std::vector<std::string_view>(static_cast<unsigned int>(argc));
