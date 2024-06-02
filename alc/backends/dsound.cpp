@@ -422,6 +422,8 @@ bool DSoundPlayback::reset()
     case DevFmtX51: OutputType.dwChannelMask = isRear51 ? X5DOT1REAR : X5DOT1; break;
     case DevFmtX61: OutputType.dwChannelMask = X6DOT1; break;
     case DevFmtX71: OutputType.dwChannelMask = X7DOT1; break;
+    case DevFmtX7144: mDevice->FmtChans = DevFmtX714;
+        /* fall-through */
     case DevFmtX714: OutputType.dwChannelMask = X7DOT1DOT4; break;
     case DevFmtX3D71: OutputType.dwChannelMask = X7DOT1; break;
     }
@@ -493,7 +495,7 @@ bool DSoundPlayback::reset()
             uint num_updates{mDevice->BufferSize / mDevice->UpdateSize};
             assert(num_updates <= MAX_UPDATES);
 
-            std::array<DSBPOSITIONNOTIFY,MAX_UPDATES> nots;
+            std::array<DSBPOSITIONNOTIFY,MAX_UPDATES> nots{};
             for(uint i{0};i < num_updates;++i)
             {
                 nots[i].dwOffset = i * mDevice->UpdateSize * OutputType.Format.nBlockAlign;
@@ -631,6 +633,7 @@ void DSoundCapture::open(std::string_view name)
     case DevFmtX61: InputType.dwChannelMask = X6DOT1; break;
     case DevFmtX71: InputType.dwChannelMask = X7DOT1; break;
     case DevFmtX714: InputType.dwChannelMask = X7DOT1DOT4; break;
+    case DevFmtX7144:
     case DevFmtX3D71:
     case DevFmtAmbi3D:
         WARN("%s capture not supported\n", DevFmtChannelsString(mDevice->FmtChans));
