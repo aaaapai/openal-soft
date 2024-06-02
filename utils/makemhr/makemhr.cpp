@@ -784,7 +784,7 @@ void SynthesizeHrirs(HrirDataT *hData)
              */
             FftForward(static_cast<uint>(htemp.size()), htemp.data());
             std::transform(htemp.cbegin(), htemp.cbegin()+m, filter.begin(),
-                [](const complex_d &c) -> double { return std::abs(c); });
+                [](const complex_d c) -> double { return std::abs(c); });
 
             for(uint ai{0u};ai < field.mEvs[ei].mAzs.size();ai++)
             {
@@ -824,7 +824,7 @@ void SynthesizeHrirs(HrirDataT *hData)
         }
         FftForward(static_cast<uint>(htemp.size()), htemp.data());
         std::transform(htemp.cbegin(), htemp.cbegin()+m, filter.begin(),
-            [](const complex_d &c) -> double { return std::abs(c); });
+            [](const complex_d c) -> double { return std::abs(c); });
 
         for(uint ti{0u};ti < channels;ti++)
         {
@@ -1503,7 +1503,7 @@ int main(al::span<std::string_view> args)
 
 } /* namespace */
 
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
     assert(argc >= 0);
     auto args = std::vector<std::string_view>(static_cast<unsigned int>(argc));

@@ -452,6 +452,17 @@ int verify_state(snd_pcm_t *handle)
 
         case SND_PCM_STATE_DISCONNECTED:
             return -ENODEV;
+
+        /* ALSA headers have made this enum public, leaving us in a bind: use
+         * the enum despite being private and internal to the libasound, or
+         * ignore when an enum value isn't handled. We can't rely on it being
+         * declared either, since older headers don't have it and it could be
+         * removed in the future. We can't even really rely on its value, since
+         * being private/internal means it's subject to change, but this is the
+         * best we can do.
+         */
+        case 1024 /*SND_PCM_STATE_PRIVATE1*/:
+            assert(state != 1024);
     }
 
     return state;
@@ -885,9 +896,8 @@ void AlsaPlayback::stop()
 
 ClockLatency AlsaPlayback::getClockLatency()
 {
-    ClockLatency ret;
-
     std::lock_guard<std::mutex> dlock{mMutex};
+    ClockLatency ret{};
     ret.ClockTime = mDevice->getClockTime();
     snd_pcm_sframes_t delay{};
     int err{snd_pcm_delay(mPcmHandle, &delay)};
@@ -1206,8 +1216,7 @@ uint AlsaCapture::availableSamples()
 
 ClockLatency AlsaCapture::getClockLatency()
 {
-    ClockLatency ret;
-
+    ClockLatency ret{};
     ret.ClockTime = mDevice->getClockTime();
     snd_pcm_sframes_t delay{};
     int err{snd_pcm_delay(mPcmHandle, &delay)};

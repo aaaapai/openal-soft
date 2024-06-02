@@ -53,7 +53,6 @@
 #include "alnumeric.h"
 #include "alspan.h"
 #include "core/device.h"
-#include "core/logging.h"
 #include "core/resampler_limits.h"
 #include "core/voice.h"
 #include "direct_defs.h"
@@ -236,7 +235,7 @@ void FreeBuffer(ALCdevice *device, ALbuffer *buffer)
     device->BufferList[lidx].FreeMask |= 1_u64 << slidx;
 }
 
-inline auto LookupBuffer(ALCdevice *device, ALuint id) noexcept -> ALbuffer*
+auto LookupBuffer(ALCdevice *device, ALuint id) noexcept -> ALbuffer*
 {
     const size_t lidx{(id-1) >> 6};
     const ALuint slidx{(id-1) & 0x3f};

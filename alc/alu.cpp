@@ -512,14 +512,13 @@ bool CalcEffectSlotParams(EffectSlot *slot, EffectSlot **sorted_slots, ContextBa
 
     AtomicReplaceHead(context->mFreeEffectSlotProps, props);
 
-    EffectTarget output;
-    if(EffectSlot *target{slot->Target})
-        output = EffectTarget{&target->Wet, nullptr};
-    else
+    const auto output = [slot,context]() -> EffectTarget
     {
+        if(EffectSlot *target{slot->Target})
+            return EffectTarget{&target->Wet, nullptr};
         DeviceBase *device{context->mDevice};
-        output = EffectTarget{&device->Dry, &device->RealOut};
-    }
+        return EffectTarget{&device->Dry, &device->RealOut};
+    }();
     state->update(context, slot, &slot->mEffectProps, output);
     return true;
 }
@@ -919,6 +918,10 @@ void CalcPanningAndFilters(Voice *voice, const float xpos, const float ypos, con
         case TopBackLeft: return lgain;
         case TopBackCenter: break;
         case TopBackRight: return rgain;
+        case BottomFrontLeft: return lgain;
+        case BottomFrontRight: return rgain;
+        case BottomBackLeft: return lgain;
+        case BottomBackRight: return rgain;
         case Aux0: case Aux1: case Aux2: case Aux3: case Aux4: case Aux5: case Aux6: case Aux7:
         case Aux8: case Aux9: case Aux10: case Aux11: case Aux12: case Aux13: case Aux14:
         case Aux15: case MaxChannels: break;
@@ -1453,7 +1456,7 @@ void CalcPanningAndFilters(Voice *voice, const float xpos, const float ypos, con
 void CalcNonAttnSourceParams(Voice *voice, const VoiceProps *props, const ContextBase *context)
 {
     DeviceBase *Device{context->mDevice};
-    std::array<EffectSlot*,MaxSendCount> SendSlots;
+    std::array<EffectSlot*,MaxSendCount> SendSlots{};
 
     voice->mDirect.Buffer = Device->Dry.Buffer;
     for(uint i{0};i < Device->NumAuxSends;i++)
@@ -1478,13 +1481,13 @@ void CalcNonAttnSourceParams(Voice *voice, const VoiceProps *props, const Contex
     voice->mResampler = PrepareResampler(props->mResampler, voice->mStep, &voice->mResampleState);
 
     /* Calculate gains */
-    GainTriplet DryGain;
-    DryGain.Base  = std::min(std::clamp(props->Gain, props->MinGain, props->MaxGain) *
+    GainTriplet DryGain{};
+    DryGain.Base = std::min(std::clamp(props->Gain, props->MinGain, props->MaxGain) *
         props->Direct.Gain * context->mParams.Gain, GainMixMax);
     DryGain.HF = props->Direct.GainHF;
     DryGain.LF = props->Direct.GainLF;
 
-    std::array<GainTriplet,MaxSendCount> WetGain;
+    std::array<GainTriplet,MaxSendCount> WetGain{};
     for(uint i{0};i < Device->NumAuxSends;i++)
     {
         WetGain[i].Base = std::min(std::clamp(props->Gain, props->MinGain, props->MaxGain) *

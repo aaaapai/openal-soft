@@ -100,15 +100,6 @@ struct ChorusProps {
     float Delay;
 };
 
-struct FlangerProps {
-    ChorusWaveform Waveform;
-    int Phase;
-    float Rate;
-    float Depth;
-    float Feedback;
-    float Delay;
-};
-
 struct CompressorProps {
     bool OnOff;
 };
@@ -170,11 +161,9 @@ struct VmorpherProps {
     VMorpherWaveform Waveform;
 };
 
-struct DedicatedDialogProps {
-    float Gain;
-};
-
-struct DedicatedLfeProps {
+struct DedicatedProps {
+    enum TargetType : bool { Dialog, Lfe };
+    TargetType Target;
     float Gain;
 };
 
@@ -187,7 +176,6 @@ using EffectProps = std::variant<std::monostate,
     ReverbProps,
     AutowahProps,
     ChorusProps,
-    FlangerProps,
     CompressorProps,
     DistortionProps,
     EchoProps,
@@ -196,8 +184,7 @@ using EffectProps = std::variant<std::monostate,
     ModulatorProps,
     PshifterProps,
     VmorpherProps,
-    DedicatedDialogProps,
-    DedicatedLfeProps,
+    DedicatedProps,
     ConvolutionProps>;
 
 
@@ -221,7 +208,13 @@ struct EffectState : public al::intrusive_ref<EffectState> {
 
 
 struct EffectStateFactory {
+    EffectStateFactory() = default;
+    EffectStateFactory(const EffectStateFactory&) = delete;
+    EffectStateFactory(EffectStateFactory&&) = delete;
     virtual ~EffectStateFactory() = default;
+
+    void operator=(const EffectStateFactory&) = delete;
+    void operator=(EffectStateFactory&&) = delete;
 
     virtual al::intrusive_ptr<EffectState> create() = 0;
 };

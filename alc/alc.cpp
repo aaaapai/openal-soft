@@ -872,6 +872,7 @@ ALCenum EnumFromDevFmt(DevFmtChannels channels)
     case DevFmtAmbi3D: return ALC_BFORMAT3D_SOFT;
     /* FIXME: Shouldn't happen. */
     case DevFmtX714:
+    case DevFmtX7144:
     case DevFmtX3D71: break;
     }
     throw std::runtime_error{"Invalid DevFmtChannels: "+std::to_string(int(channels))};
@@ -1101,6 +1102,7 @@ ALCenum UpdateDeviceParams(ALCdevice *device, const al::span<const int> attrList
                 ChannelMap{"surround61"sv, DevFmtX61,    0},
                 ChannelMap{"surround71"sv, DevFmtX71,    0},
                 ChannelMap{"surround714"sv, DevFmtX714,  0},
+                ChannelMap{"surround7144"sv, DevFmtX7144, 0},
                 ChannelMap{"surround3d71"sv, DevFmtX3D71, 0},
                 ChannelMap{"surround51rear"sv, DevFmtX51, 0},
                 ChannelMap{"ambi1"sv, DevFmtAmbi3D, 1},
@@ -1228,7 +1230,7 @@ ALCenum UpdateDeviceParams(ALCdevice *device, const al::span<const int> attrList
 
             case ATTRIBUTE(ALC_MAX_AUXILIARY_SENDS)
                 numSends = static_cast<uint>(attrList[attrIdx + 1]);
-                if(numSends > std::numeric_limits<int>::max()) numSends = 0;
+                if(numSends > uint{std::numeric_limits<int>::max()}) numSends = 0;
                 else numSends = std::min(numSends, uint{MaxSendCount});
                 break;
 
@@ -1543,6 +1545,7 @@ ALCenum UpdateDeviceParams(ALCdevice *device, const al::span<const int> attrList
     case DevFmtX61: device->RealOut.RemixMap = X61Downmix; break;
     case DevFmtX71: device->RealOut.RemixMap = X71Downmix; break;
     case DevFmtX714: device->RealOut.RemixMap = X71Downmix; break;
+    case DevFmtX7144: device->RealOut.RemixMap = X71Downmix; break;
     case DevFmtX3D71: device->RealOut.RemixMap = X51Downmix; break;
     case DevFmtAmbi3D: break;
     }
@@ -3441,7 +3444,7 @@ FORCE_ALIGN ALCboolean ALC_APIENTRY alcReopenDeviceSOFT(ALCdevice *device,
     std::string_view devname{deviceName ? deviceName : ""};
     if(!devname.empty())
     {
-        if(devname.length() >= std::numeric_limits<int>::max())
+        if(devname.length() >= size_t{std::numeric_limits<int>::max()})
         {
             ERR("Device name too long (%zu >= %d)\n", devname.length(),
                 std::numeric_limits<int>::max());

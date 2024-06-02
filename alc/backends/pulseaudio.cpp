@@ -597,6 +597,8 @@ void PulseMainloop::probePlaybackDevices()
     PlaybackDevices.clear();
     try {
         MainloopUniqueLock plock{*this};
+        plock.connectContext();
+
         auto sink_callback = [](pa_context *ctx, const pa_sink_info *info, int eol, void *pdata) noexcept
         { return static_cast<PulseMainloop*>(pdata)->deviceSinkCallback(ctx, info, eol); };
 
@@ -616,6 +618,8 @@ void PulseMainloop::probeCaptureDevices()
     CaptureDevices.clear();
     try {
         MainloopUniqueLock plock{*this};
+        plock.connectContext();
+
         auto src_callback = [](pa_context *ctx, const pa_source_info *info, int eol, void *pdata) noexcept
         { return static_cast<PulseMainloop*>(pdata)->deviceSourceCallback(ctx, info, eol); };
 
@@ -908,6 +912,9 @@ bool PulsePlayback::reset()
     case DevFmtX3D71:
         chanmap = X71ChanMap;
         break;
+    case DevFmtX7144:
+        mDevice->FmtChans = DevFmtX714;
+        /*fall-through*/
     case DevFmtX714:
         chanmap = X714ChanMap;
         break;
@@ -1030,7 +1037,7 @@ void PulsePlayback::stop()
 
 ClockLatency PulsePlayback::getClockLatency()
 {
-    ClockLatency ret;
+    ClockLatency ret{};
     pa_usec_t latency{};
     int neg{}, err{};
 
@@ -1175,6 +1182,7 @@ void PulseCapture::open(std::string_view name)
     case DevFmtX714:
         chanmap = X714ChanMap;
         break;
+    case DevFmtX7144:
     case DevFmtX3D71:
     case DevFmtAmbi3D:
         throw al::backend_exception{al::backend_error::DeviceError, "%s capture not supported",
@@ -1359,7 +1367,7 @@ uint PulseCapture::availableSamples()
 
 ClockLatency PulseCapture::getClockLatency()
 {
-    ClockLatency ret;
+    ClockLatency ret{};
     pa_usec_t latency{};
     int neg{}, err{};
 

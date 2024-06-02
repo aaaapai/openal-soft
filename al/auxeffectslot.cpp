@@ -79,28 +79,26 @@ EffectStateFactory *getFactoryByType(EffectSlotType type)
     switch(type)
     {
     case EffectSlotType::None: return NullStateFactory_getFactory();
-    case EffectSlotType::EAXReverb: return ReverbStateFactory_getFactory();
-    case EffectSlotType::Reverb: return StdReverbStateFactory_getFactory();
-    case EffectSlotType::Autowah: return AutowahStateFactory_getFactory();
+    case EffectSlotType::Reverb: return ReverbStateFactory_getFactory();
     case EffectSlotType::Chorus: return ChorusStateFactory_getFactory();
+    case EffectSlotType::Autowah: return AutowahStateFactory_getFactory();
     case EffectSlotType::Compressor: return CompressorStateFactory_getFactory();
+    case EffectSlotType::Convolution: return ConvolutionStateFactory_getFactory();
+    case EffectSlotType::Dedicated: return DedicatedStateFactory_getFactory();
     case EffectSlotType::Distortion: return DistortionStateFactory_getFactory();
     case EffectSlotType::Echo: return EchoStateFactory_getFactory();
     case EffectSlotType::Equalizer: return EqualizerStateFactory_getFactory();
-    case EffectSlotType::Flanger: return FlangerStateFactory_getFactory();
+    case EffectSlotType::Flanger: return ChorusStateFactory_getFactory();
     case EffectSlotType::FrequencyShifter: return FshifterStateFactory_getFactory();
     case EffectSlotType::RingModulator: return ModulatorStateFactory_getFactory();
     case EffectSlotType::PitchShifter: return PshifterStateFactory_getFactory();
     case EffectSlotType::VocalMorpher: return VmorpherStateFactory_getFactory();
-    case EffectSlotType::DedicatedDialog: return DedicatedDialogStateFactory_getFactory();
-    case EffectSlotType::DedicatedLFE: return DedicatedLfeStateFactory_getFactory();
-    case EffectSlotType::Convolution: return ConvolutionStateFactory_getFactory();
     }
     return nullptr;
 }
 
 
-inline auto LookupEffectSlot(ALCcontext *context, ALuint id) noexcept -> ALeffectslot*
+auto LookupEffectSlot(ALCcontext *context, ALuint id) noexcept -> ALeffectslot*
 {
     const size_t lidx{(id-1) >> 6};
     const ALuint slidx{(id-1) & 0x3f};
@@ -236,9 +234,9 @@ constexpr auto EffectSlotTypeFromEnum(ALenum type) noexcept -> EffectSlotType
     case AL_EFFECT_AUTOWAH: return EffectSlotType::Autowah;
     case AL_EFFECT_COMPRESSOR: return EffectSlotType::Compressor;
     case AL_EFFECT_EQUALIZER: return EffectSlotType::Equalizer;
-    case AL_EFFECT_EAXREVERB: return EffectSlotType::EAXReverb;
-    case AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT: return EffectSlotType::DedicatedLFE;
-    case AL_EFFECT_DEDICATED_DIALOGUE: return EffectSlotType::DedicatedDialog;
+    case AL_EFFECT_EAXREVERB: return EffectSlotType::Reverb;
+    case AL_EFFECT_DEDICATED_LOW_FREQUENCY_EFFECT: return EffectSlotType::Dedicated;
+    case AL_EFFECT_DEDICATED_DIALOGUE: return EffectSlotType::Dedicated;
     case AL_EFFECT_CONVOLUTION_SOFT: return EffectSlotType::Convolution;
     }
     ERR("Unhandled effect enum: 0x%04x\n", type);
