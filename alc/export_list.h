@@ -344,6 +344,9 @@ inline const auto alcFunctions = std::to_array({
 
     DECL(alBufferDataStaticDirect),
     DECL(alBufferCallbackDirectSOFT),
+    DECL(alGetBufferPtrDirectSOFT),
+    DECL(alGetBuffer3PtrDirectSOFT),
+    DECL(alGetBufferPtrvDirectSOFT),
     DECL(alBufferSubDataDirectSOFT),
     DECL(alBufferStorageDirectSOFT),
     DECL(alMapBufferDirectSOFT),
@@ -367,6 +370,8 @@ inline const auto alcFunctions = std::to_array({
 
     DECL(alEventControlDirectSOFT),
     DECL(alEventCallbackDirectSOFT),
+    DECL(alGetPointerDirectSOFT),
+    DECL(alGetPointervDirectSOFT),
 
     DECL(alDebugMessageCallbackDirectEXT),
     DECL(alDebugMessageInsertDirectEXT),
