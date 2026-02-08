@@ -1,6 +1,7 @@
 #!/bin/bash
 # set -e
 
+git clone https://github.com/google/oboe --depth=1
 
 cmake_build () {
   ANDROID_ABI=$1
