@@ -28,7 +28,7 @@ jobs:
       with:
         name: Openallllllllllll
         path: |
-              **/armeabi-v7a/libopenal.so
-              **/arm64-v8a/libopenal.so
-              **/x86/libopenal.so
-              **/x86_64/libopenal.so
+              **/armeabi-v7a/build/libopenal.so
+              **/arm64-v8a/build/libopenal.so
+              **/x86/build/libopenal.so
+              **/x86_64/build/libopenal.so
