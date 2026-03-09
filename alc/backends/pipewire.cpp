@@ -52,7 +52,6 @@
 #include "core/devformat.h"
 #include "core/device.h"
 #include "core/helpers.h"
-#include "core/logging.h"
 #include "dynload.h"
 #include "fmt/core.h"
 #include "fmt/ranges.h"
@@ -68,7 +67,6 @@
 DIAGNOSTIC_PUSH
 std_pragma("GCC diagnostic ignored \"-Wpedantic\"")
 std_pragma("GCC diagnostic ignored \"-Wconversion\"")
-std_pragma("GCC diagnostic ignored \"-Warith-conversion\"")
 std_pragma("GCC diagnostic ignored \"-Wfloat-conversion\"")
 std_pragma("GCC diagnostic ignored \"-Wmissing-field-initializers\"")
 std_pragma("GCC diagnostic ignored \"-Wunused-parameter\"")
@@ -137,6 +135,12 @@ constexpr auto PwIdAny = PW_ID_ANY;
 /* NOLINTEND */
 DIAGNOSTIC_POP
 
+#if HAVE_CXXMODULES
+import logging;
+#else
+#include "core/logging.h"
+#endif
+
 namespace {
 
 template<typename T> [[nodiscard]] constexpr
@@ -144,12 +148,30 @@ auto as_const_ptr(T *ptr) noexcept -> std::add_const_t<T>* { return ptr; }
 
 struct SpaHook : spa_hook {
     SpaHook() : spa_hook{} { }
-    ~SpaHook() { spa_hook_remove(this); }
+    ~SpaHook()
+    {
+        /* Prior to 0.3.57, spa_hook_remove will crash if the spa_hook hasn't
+         * been linked with anything, which complicates removing on destruction
+         * since the spa_hook object needs to exist before it's linked, but if
+         * linking fails, there's no function to test if it can be removed. The
+         * PipeWire headers say spa_hook should be treated as opaque, meaning
+         * accessing any fields directly risks breaking compilation in the
+         * future. So we only peek into the spa_hool to do this check on older
+         * versions that need it.
+         */
+#if !PW_CHECK_VERSION(0,3,57)
+        if(this->link.prev != nullptr)
+#endif
+            spa_hook_remove(this);
+    }
 
     void remove()
     {
-        spa_hook_remove(this);
-        static_cast<spa_hook&>(*this) = {};
+#if !PW_CHECK_VERSION(0,3,57)
+        if(this->link.prev != nullptr)
+#endif
+            spa_hook_remove(this);
+        static_cast<spa_hook&>(*this) = spa_hook{};
     }
 
     SpaHook(const SpaHook&) = delete;
@@ -1822,7 +1844,7 @@ void PipeWirePlayback::start()
         if(ptime.rate.denom > 0 && updatesize > 0)
         {
             /* Ensure the delay is in sample frames. */
-            const auto delay = gsl::narrow_cast<u64>(ptime.delay) * mDevice->mSampleRate *
+            const auto delay = gsl::narrow_cast<uint64_t>(ptime.delay) * mDevice->mSampleRate *
                 ptime.rate.num / ptime.rate.denom;
 
             mDevice->mUpdateSize = updatesize;

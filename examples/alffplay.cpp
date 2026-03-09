@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -33,6 +32,7 @@
 #include "almalloc.h"
 #include "alnumeric.h"
 #include "alstring.h"
+#include "altypes.hpp"
 #include "common/alhelpers.hpp"
 #include "fmt/base.h"
 #include "fmt/ostream.h"
@@ -124,11 +124,8 @@ auto EnableWideStereo = false;
 auto EnableUhj = false;
 auto EnableSuperStereo = false;
 auto DisableVideo = false;
-auto alGetSourcei64vSOFT = LPALGETSOURCEI64VSOFT{};
-auto alEventControlSOFT = LPALEVENTCONTROLSOFT{};
-auto alEventCallbackSOFT = LPALEVENTCALLBACKSOFT{};
-
-auto alBufferCallbackSOFT = LPALBUFFERCALLBACKSOFT{};
+auto TimeStretchFactor = 1.0f;
+auto PitchTuneFactor = 1.0f;
 
 constexpr auto AVNoSyncThreshold = seconds{10};
 
@@ -429,6 +426,8 @@ struct AudioState {
     std::array<ALuint,AudioBufferCount> mBuffers{};
     ALuint mBufferIdx{0};
 
+    static inline auto sPShiftSlot = ALuint{};
+
     explicit AudioState(MovieState &movie LIFETIMEBOUND) : mMovie(movie)
     { mConnected.test_and_set(std::memory_order_relaxed); }
     ~AudioState()
@@ -544,7 +543,6 @@ struct MovieState {
             mParseThread.join();
     }
 
-    static auto decode_interrupt_cb(void *ctx) -> int;
     auto prepare() -> bool;
     void setTitle(SDL_Window *window) const;
     void stop();
@@ -568,7 +566,11 @@ auto AudioState::getClockNoLock() const -> nanoseconds
      * keep going.
      */
     if(mEndTime > nanoseconds::min())
-        return std::chrono::steady_clock::now().time_since_epoch() - mEndTime + mCurrentPts;
+    {
+        auto const rtdiff = std::chrono::steady_clock::now().time_since_epoch() - mEndTime;
+        auto const diff = duration_cast<seconds_d64>(rtdiff) * TimeStretchFactor;
+        return duration_cast<nanoseconds>(diff) + mCurrentPts;
+    }
 
     /* This more safely converts fixed32 to nanoseconds, avoiding overflow
      * unlike a normal duration_cast call.
@@ -745,21 +747,22 @@ auto AudioState::decodeFrame() -> int
         mCurrentPts = duration_cast<nanoseconds>(seconds_d64{av_q2d(mStream->time_base) *
             gsl::narrow_cast<double>(mDecodedFrame->best_effort_timestamp)});
 
-    if(mDecodedFrame->nb_samples > mSamplesMax)
+    auto const dst_size = swr_get_out_samples(mSwresCtx.get(), mDecodedFrame->nb_samples);
+    if(dst_size > mSamplesMax)
     {
         av_freep(static_cast<void*>(mSamples.data()));
         if(av_samples_alloc(mSamples.data(), nullptr, mCodecCtx->ch_layout.nb_channels,
-            mDecodedFrame->nb_samples, mDstSampleFmt, 0) < 0)
+            dst_size, mDstSampleFmt, 0) < 0)
         {
             mSamplesMax = 0;
             mSamplesSpan = {};
             return 0;
         }
-        mSamplesMax = mDecodedFrame->nb_samples;
+        mSamplesMax = dst_size;
         mSamplesSpan = {mSamples[0], gsl::narrow_cast<size_t>(mSamplesMax)*mFrameSize};
     }
     /* Return the amount of sample frames converted */
-    const auto data_size = swr_convert(mSwresCtx.get(), mSamples.data(), mDecodedFrame->nb_samples,
+    auto const data_size = swr_convert(mSwresCtx.get(), mSamples.data(), dst_size,
         mDecodedFrame->extended_data, mDecodedFrame->nb_samples);
 
     av_frame_unref(mDecodedFrame.get());
@@ -1327,10 +1330,25 @@ void AudioState::handler()
     if(ambi_order > 1)
     {
         std::ranges::for_each(mBuffers, [ambi_order](const ALuint bufid)
-        { alBufferi(bufid, AL_UNPACK_AMBISONIC_ORDER_SOFT, gsl::narrow_cast<int>(ambi_order)); });
+        { alBufferi(bufid, AL_UNPACK_AMBISONIC_ORDER_SOFT, static_cast<int>(ambi_order)); });
     }
     if(EnableSuperStereo)
         alSourcei(mSource, AL_STEREO_MODE_SOFT, AL_SUPER_STEREO_SOFT);
+    if(sPShiftSlot != 0)
+    {
+        /* Filter to mute the dry (un-corrected) path. */
+        auto mutefilter = ALuint{};
+        alGenFilters(1, &mutefilter);
+        alFilteri(mutefilter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
+        alFilterf(mutefilter, AL_LOWPASS_GAIN, 0.0f);
+
+        alSourcef(mSource, AL_PITCH, TimeStretchFactor);
+        alSourcei(mSource, AL_DIRECT_FILTER, static_cast<ALint>(mutefilter));
+        alSource3i(mSource, AL_AUXILIARY_SEND_FILTER, static_cast<ALint>(sPShiftSlot), 0,
+            AL_FILTER_NULL);
+
+        alDeleteFilters(1, &mutefilter);
+    }
 
     if(alGetError() != AL_NO_ERROR)
         return;
@@ -1393,7 +1411,7 @@ void AudioState::handler()
          * buffered. Prerolling would be better here, but short of that, this
          * will do.
          */
-        const auto start_delay = round<seconds>(AudioBufferTotalTime/2
+        const auto start_delay = round<seconds>(AudioBufferTotalTime/2 * TimeStretchFactor
             * mCodecCtx->sample_rate).count();
         alSourcei(mSource, AL_SAMPLE_OFFSET, -gsl::narrow_cast<int>(start_delay));
     }
@@ -1500,8 +1518,8 @@ auto VideoState::getClock() -> nanoseconds
     auto displock = std::lock_guard{mDispPtsMutex};
     if(mDisplayPtsTime == microseconds::min())
         return nanoseconds::zero();
-    auto delta = get_avtime() - mDisplayPtsTime;
-    return mDisplayPts + delta;
+    auto const delta = duration_cast<seconds_d64>(get_avtime() - mDisplayPtsTime);
+    return duration_cast<nanoseconds>(mDisplayPts + delta*TimeStretchFactor);
 }
 
 /* Called by VideoState::updateVideo to display the next video frame. */
@@ -1900,14 +1918,13 @@ void VideoState::handler()
 }
 
 
-int MovieState::decode_interrupt_cb(void *ctx)
-{
-    return static_cast<MovieState*>(ctx)->mQuit.load(std::memory_order_relaxed);
-}
-
 bool MovieState::prepare()
 {
-    auto intcb = AVIOInterruptCB{decode_interrupt_cb, this};
+    auto const intcb = AVIOInterruptCB{
+        .callback = [](void *ctx) noexcept NONBLOCKING -> int
+        { return static_cast<MovieState*>(ctx)->mQuit.load(std::memory_order_relaxed); },
+        .opaque = this
+    };
     if(avio_open2(al::out_ptr(mIOContext), mFilename.c_str(), AVIO_FLAG_READ, &intcb, nullptr) < 0)
     {
         fmt::println(std::cerr, "Failed to open {}", mFilename);
@@ -1957,7 +1974,8 @@ auto MovieState::getClock() const -> nanoseconds
 {
     if(mClockBase == microseconds::min())
         return nanoseconds::zero();
-    return get_avtime() - mClockBase;
+    auto const diff = duration_cast<seconds_d64>(get_avtime() - mClockBase);
+    return duration_cast<nanoseconds>(diff * TimeStretchFactor);
 }
 
 auto MovieState::getMasterClock() -> nanoseconds
@@ -2126,6 +2144,8 @@ auto main(std::span<std::string_view> args) -> int
         fmt::println(std::cerr, "\n  Options:\n"
             "    -gain <g>     Set audio playback gain (prepend +/- or append \"dB\" to \n"
             "                  indicate decibels, otherwise it's linear amplitude)\n"
+            "    -tstretch <s> Set playback speed factor (with pitch correction)"
+            "    -tune <st>    Adjust pitch tuning (in semitones, decimals allowed)"
             "    -novideo      Disable video playback\n"
             "    -direct       Play audio directly on the output, bypassing virtualization\n"
             "    -superstereo  Apply Super Stereo processing to stereo tracks\n"
@@ -2168,28 +2188,14 @@ auto main(std::span<std::string_view> args) -> int
     auto almgr = InitAL(args);
     almgr.printName();
 
-    /* NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast) */
+    LoadALExtensions();
+
     if(alIsExtensionPresent("AL_SOFT_source_latency"))
-    {
         fmt::println("Found AL_SOFT_source_latency");
-        alGetSourcei64vSOFT = reinterpret_cast<LPALGETSOURCEI64VSOFT>(
-            alGetProcAddress("alGetSourcei64vSOFT"));
-    }
     if(alIsExtensionPresent("AL_SOFT_events"))
-    {
         fmt::println("Found AL_SOFT_events");
-        alEventControlSOFT = reinterpret_cast<LPALEVENTCONTROLSOFT>(
-            alGetProcAddress("alEventControlSOFT"));
-        alEventCallbackSOFT = reinterpret_cast<LPALEVENTCALLBACKSOFT>(
-            alGetProcAddress("alEventCallbackSOFT"));
-    }
     if(alIsExtensionPresent("AL_SOFT_callback_buffer"))
-    {
         fmt::println("Found AL_SOFT_callback_buffer");
-        alBufferCallbackSOFT = reinterpret_cast<LPALBUFFERCALLBACKSOFT>(
-            alGetProcAddress("alBufferCallbackSOFT"));
-    }
-    /* NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast) */
 
     auto curarg = args.begin();
     for(auto args_end=args.end();curarg != args_end;++curarg)
@@ -2285,7 +2291,122 @@ auto main(std::span<std::string_view> args) -> int
             }
             continue;
         }
+        if(argval == "-tstretch")
+        {
+            if(curarg+1 == args_end)
+                fmt::println(std::cerr, "Missing argument for -tstretch");
+            else
+            {
+                const auto optarg = *++curarg;
+
+                auto endpos = size_t{};
+                const auto stretchval = std::invoke([optarg, &endpos]
+                {
+                    try { return std::stof(std::string{optarg}, &endpos); }
+                    catch(std::exception &e) {
+                        fmt::println(std::cerr, "Exception reading tstretch value: {}", e.what());
+                    }
+                    return std::numeric_limits<float>::quiet_NaN();
+                });
+                if(!(stretchval > 0.0f) || endpos != optarg.size())
+                    fmt::println(std::cerr, "Invalid tstretch value: {}", optarg);
+                else if(!alcIsExtensionPresent(almgr.mDevice, "ALC_EXT_EFX"))
+                    fmt::println(std::cerr, "EFX not supported for time stretching");
+                else
+                    TimeStretchFactor = stretchval;
+            }
+            continue;
+        }
+        if(argval == "-tune")
+        {
+            if(curarg+1 == args_end)
+                fmt::println(std::cerr, "Missing argument for -tstretch");
+            else
+            {
+                const auto optarg = *++curarg;
+
+                auto endpos = size_t{};
+                const auto tuneval = std::invoke([optarg, &endpos]
+                {
+                    try { return std::stof(std::string{optarg}, &endpos); }
+                    catch(std::exception &e) {
+                        fmt::println(std::cerr, "Exception reading tstretch value: {}", e.what());
+                    }
+                    return std::numeric_limits<float>::quiet_NaN();
+                });
+                auto const pitchtune = std::pow(2.0f, tuneval / 12.0f);
+                if(!std::isfinite(pitchtune) || endpos != optarg.size())
+                    fmt::println(std::cerr, "Invalid tune value: {}", optarg);
+                else if(!alcIsExtensionPresent(almgr.mDevice, "ALC_EXT_EFX"))
+                    fmt::println(std::cerr, "EFX not supported for pitch tuning");
+                else
+                    PitchTuneFactor = pitchtune;
+            }
+            continue;
+        }
         break;
+    }
+
+    auto _ = gsl::finally([]()
+    {
+        if(AudioState::sPShiftSlot)
+            alDeleteAuxiliaryEffectSlots(1, &AudioState::sPShiftSlot);
+        AudioState::sPShiftSlot = 0;
+    });
+    if(TimeStretchFactor != 1.0f || PitchTuneFactor != 1.0f)
+    {
+        /* AL_PITCH alone will speed up or slow down playback and alter the
+         * pitch (e.g. 2.0 will play twice as fast, 12 semitones higher).
+         * AL_EFFECT_PITCH_SHIFTER can be used to adjust the sound back to its
+         * original pitch while maintaining the speed change.
+         */
+        auto effect = ALuint{};
+        alGenEffects(1, &effect);
+        alEffecti(effect, AL_EFFECT_TYPE, AL_EFFECT_PITCH_SHIFTER);
+        if(auto const err = alGetError(); err != AL_NO_ERROR)
+        {
+            fmt::print(std::cerr, "Could not create the Pitch Shifter effect: {:#06x}\n", err);
+            TimeStretchFactor = 1.0f;
+        }
+        else
+        {
+            /* Calculate the tuning (in semitones and cents) to counteract the
+             * pitch change from AL_PITCH.
+             */
+            auto const pitch = PitchTuneFactor / TimeStretchFactor;
+            if(!(pitch >= 0.5f && pitch <= 2.0f))
+            {
+                fmt::println(std::cerr, "Pitch tuning out of range: {}", pitch);
+                TimeStretchFactor = 1.0f;
+            }
+            else
+            {
+                auto const tune = static_cast<int>(std::lround(std::log2(pitch) * 1200.0f));
+                auto const [course_tune, fine_tune] = std::invoke([tune]() -> std::pair<int, int>
+                {
+                    auto const course = tune / 100;
+                    auto const fine = tune % 100;
+                    /* Fine-tuning is limited to -50...+50, so adjust values as
+                     * needed (e.g. course=-5, fine=-90 -> course=-6, fine=10).
+                     */
+                    if(fine > 50)
+                        return {course+1, fine-100};
+                    if(fine < -50)
+                        return {course-1, fine+100};
+                    return {course, fine};
+                });
+                fmt::println("Speed factor: {} (pitch adj: {}; course tuning: {}, fine tuning: {})",
+                    TimeStretchFactor, pitch, course_tune, fine_tune);
+
+                alEffecti(effect, AL_PITCH_SHIFTER_COARSE_TUNE, std::clamp(course_tune, -12, +12));
+                alEffecti(effect, AL_PITCH_SHIFTER_FINE_TUNE, fine_tune);
+
+                alGenAuxiliaryEffectSlots(1, &AudioState::sPShiftSlot);
+                alAuxiliaryEffectSloti(AudioState::sPShiftSlot, AL_EFFECTSLOT_EFFECT,
+                    static_cast<ALint>(effect));
+            }
+        }
+        alDeleteEffects(1, &effect);
     }
 
     auto movState = std::unique_ptr<MovieState>{};
@@ -2389,15 +2510,13 @@ auto main(std::span<std::string_view> args) -> int
                 /* Nothing more to play. Shut everything down and quit. */
                 movState = nullptr;
 
-                almgr.close();
-
                 SDL_DestroyRenderer(renderer);
                 renderer = nullptr;
                 SDL_DestroyWindow(screen);
                 screen = nullptr;
 
                 SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
-                exit(0);
+                return 0;
 
             default:
                 break;

@@ -273,6 +273,16 @@ set(LINKER_FLAGS_DEBUG )
 set(LINKER_FLAGS_RELEASE )
 set(EXTRA_LIBS )
 
+if((CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"
+        AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 17.0)
+    OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+        AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20.0))
+    check_cxx_compiler_flag(-Wfunction-effects HAVE_WFUNCTION_EFFECTS)
+    if(HAVE_WFUNCTION_EFFECTS)
+        set(C_FLAGS ${C_FLAGS} $<$<COMPILE_LANGUAGE:CXX>:-Wfunction-effects>)
+    endif()
+endif()
+
 if(WIN32)
     set(CPP_DEFS ${CPP_DEFS} _WIN32 NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MINGW)
@@ -386,10 +396,6 @@ else()
     if(HAVE_WCONVERSION)
         set(C_FLAGS ${C_FLAGS} -Wconversion)
     endif()
-    check_c_compiler_flag(-Warith-conversion HAVE_WARITH_CONVERSION)
-    if(HAVE_WARITH_CONVERSION)
-        set(C_FLAGS ${C_FLAGS} -Warith-conversion)
-    endif()
     check_c_compiler_flag(-Wbidi-chars=any HAVE_WBIDI_CHARS_ANY)
     if(HAVE_WBIDI_CHARS_ANY)
         set(C_FLAGS ${C_FLAGS} -Wbidi-chars=any)
@@ -405,6 +411,9 @@ else()
         set(C_FLAGS ${C_FLAGS} -Werror=undef -Werror=format-security
             $<$<COMPILE_LANGUAGE:C>:-Werror=implicit -Werror=incompatible-pointer-types
                 -Werror=int-conversion>)
+        if(HAVE_WFUNCTION_EFFECTS)
+            set(C_FLAGS ${C_FLAGS} $<$<COMPILE_LANGUAGE:CXX>:-Werror=function-effects>)
+        endif()
     endif()
 
     # NOTE: This essentially provides the equivalent of the C++26 feature to
@@ -522,6 +531,11 @@ if(NOT MSVC)
     check_c_compiler_flag(-msse2 HAVE_MSSE2_SWITCH)
     if(HAVE_MSSE2_SWITCH)
         set(SSE2_SWITCH "-msse2")
+    endif()
+    # Allow detection of the OpenPOWER<-->SSE translation layer
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64.*")
+        set(C_FLAGS ${C_FLAGS} -DNO_WARN_X86_INTRINSICS)
+        set(OLD_REQUIRED_FLAGS ${OLD_REQUIRED_FLAGS} -DNO_WARN_X86_INTRINSICS)
     endif()
     set(CMAKE_REQUIRED_FLAGS ${OLD_REQUIRED_FLAGS})
     unset(OLD_REQUIRED_FLAGS)
@@ -747,11 +761,12 @@ set(COMMON_OBJS
     common/filesystem.cpp
     common/filesystem.h
     common/flexarray.h
+    common/hann_window.hpp
     common/intrusive_ptr.h
     common/opthelpers.h
     common/pffft.cpp
     common/pffft.h
-    common/phase_shifter.h
+    common/phase_shifter.hpp
     common/polyphase_resampler.cpp
     common/polyphase_resampler.h
     common/pragmadefs.h
@@ -1582,7 +1597,11 @@ set_target_properties(alsoft.common PROPERTIES ${ALSOFT_STD_VERSION_PROPS}
     POSITION_INDEPENDENT_CODE TRUE)
 if(HAVE_CXXMODULES)
     set(MODULES_OBJS  ${MODULES_OBJS} alsoft-modules/gsl.cppm)
-    target_sources(alsoft.common PUBLIC FILE_SET CXX_MODULES FILES alsoft-modules/gsl.cppm)
+    target_sources(alsoft.common PUBLIC FILE_SET CXX_MODULES FILES
+        alsoft-modules/gsl.cppm
+        alsoft-modules/hann_window.cppm
+        alsoft-modules/phase_shifter.cppm
+    )
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND DEFINED CMAKE_OSX_DEPLOYMENT_TARGET
     AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS "10.13")
@@ -1605,6 +1624,22 @@ foreach(obj ${CORE_OBJS} ${OPENAL_OBJS} ${ALC_OBJS} ${COMMON_OBJS} ${MODULES_OBJ
         list(APPEND NEED_ANALYZE_SOURCE_FILES "${OpenAL_SOURCE_DIR}/${obj}")
     endif()
 endforeach()
+
+if(HAVE_CXXMODULES)
+    add_library(alsoft.core-modules OBJECT EXCLUDE_FROM_ALL)
+    target_sources(alsoft.core-modules PUBLIC FILE_SET CXX_MODULES FILES
+        core/logging.cppm)
+    target_include_directories(alsoft.core-modules PRIVATE
+        ${INC_PATHS} ${OpenAL_BINARY_DIR} ${OpenAL_SOURCE_DIR} ${OpenAL_SOURCE_DIR}/common
+    )
+    target_compile_definitions(alsoft.core-modules PRIVATE ${CPP_DEFS})
+    target_compile_options(alsoft.core-modules PRIVATE ${C_FLAGS})
+    target_link_libraries(alsoft.core-modules PRIVATE alsoft.common ${LINKER_FLAGS} ${EXTRA_LIBS}
+        ${MATH_LIB} alsoft::fmt alsoft.modules)
+    set_target_properties(alsoft.core-modules PROPERTIES ${ALSOFT_STD_VERSION_PROPS}
+        POSITION_INDEPENDENT_CODE TRUE)
+    list(APPEND NEED_ANALYZE_SOURCE_FILES "${OpenAL_SOURCE_DIR}/core/logging.cppm")
+endif()
 
 # Build main library
 if(LIBTYPE STREQUAL "STATIC")
@@ -1695,6 +1730,9 @@ else()
     endif()
     target_link_libraries(${IMPL_TARGET} PRIVATE alsoft.common ${LINKER_FLAGS} ${EXTRA_LIBS}
         ${MATH_LIB} alsoft::fmt)
+    if(TARGET alsoft.core-modules)
+        target_link_libraries(${IMPL_TARGET} PRIVATE alsoft.core-modules)
+    endif()
 
     if(ALSOFT_UWP)
         find_package(cppwinrt CONFIG)

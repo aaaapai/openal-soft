@@ -94,7 +94,6 @@
 #include "core/front_stablizer.h"
 #include "core/helpers.h"
 #include "core/hrtf.h"
-#include "core/logging.h"
 #include "core/mastering.h"
 #include "core/tsmefilter.hpp"
 #include "core/uhjfilter.h"
@@ -170,6 +169,12 @@
 #if ALSOFT_EAX
 #include "al/eax/api.h"
 #include "al/eax/globals.h"
+#endif
+
+#if HAVE_CXXMODULES
+import logging;
+#else
+#include "core/logging.h"
 #endif
 
 
@@ -360,7 +365,8 @@ constexpr auto DitherRNGSeed = 22222u;
     constexpr auto extlist = std::string_view{GetNoDeviceExtString()};
     auto ret = std::array<std::string_view, std::ranges::count(extlist, ' ')+1>{};
     std::ranges::transform(extlist | std::views::split(' '), ret.begin(),
-        [](auto&& namerange) { return std::string_view{namerange.begin(), namerange.end()}; });
+        [](std::ranges::contiguous_range auto&& namerange) -> std::string_view
+    { return std::string_view{std::to_address(namerange.begin()), namerange.size()}; });
     return ret;
 }
 /* Returns the above Extension string as an array of string_views. */
@@ -369,7 +375,8 @@ constexpr auto DitherRNGSeed = 22222u;
     constexpr auto extlist = std::string_view{GetExtensionString()};
     auto ret = std::array<std::string_view, std::ranges::count(extlist, ' ')+1>{};
     std::ranges::transform(extlist | std::views::split(' '), ret.begin(),
-        [](auto&& namerange) { return std::string_view{namerange.begin(), namerange.end()}; });
+        [](std::ranges::contiguous_range auto&& namerange) -> std::string_view
+    { return std::string_view{std::to_address(namerange.begin()), namerange.size()}; });
     return ret;
 }
 
@@ -436,6 +443,9 @@ void alc_initconfig()
     }
 
     auto capfilter = 0;
+#if HAVE_NEON
+    capfilter |= CPU_CAP_NEON;
+#endif
 #if HAVE_SSE4_1
     capfilter |= CPU_CAP_SSE | CPU_CAP_SSE2 | CPU_CAP_SSE3 | CPU_CAP_SSE4_1;
 #elif HAVE_SSE3
@@ -445,18 +455,17 @@ void alc_initconfig()
 #elif HAVE_SSE
     capfilter |= CPU_CAP_SSE;
 #endif
-#if HAVE_NEON
-    capfilter |= CPU_CAP_NEON;
-#endif
     if(auto cpuopt = ConfigValueStr({}, {}, "disable-cpu-exts"sv))
     {
         if(auto const cpulist = std::string_view{*cpuopt}; al::case_compare(cpulist, "all"sv) == 0)
             capfilter = 0;
         else
         {
-            std::ranges::for_each(cpulist | std::views::split(','), [&capfilter](auto&& namerange)
+            std::ranges::for_each(cpulist | std::views::split(','),
+                [&capfilter](std::ranges::contiguous_range auto&& namerange)
             {
-                auto entry = std::string_view{namerange.begin(), namerange.end()};
+                auto entry = std::string_view{std::to_address(namerange.begin()),
+                    namerange.size()};
                 constexpr auto wspace_chars = " \t\n\f\r\v"sv;
                 entry.remove_prefix(std::min(entry.find_first_not_of(wspace_chars), entry.size()));
                 entry.remove_suffix(entry.size() - (entry.find_last_not_of(wspace_chars)+1));
@@ -596,9 +605,10 @@ void alc_initconfig()
         auto endlist = true;
 
         std::ranges::for_each(*drvopt | std::views::split(','),
-            [backends,&BackendListEnd,&backendlist_cur,&endlist](auto&& namerange)
+            [backends,&BackendListEnd,&backendlist_cur,&endlist]
+            (std::ranges::contiguous_range auto&& namerange)
         {
-            auto entry = std::string_view{namerange.begin(), namerange.end()};
+            auto entry = std::string_view{std::to_address(namerange.begin()), namerange.size()};
 
             constexpr auto whitespace_chars = " \t\n\f\r\v"sv;
             entry.remove_prefix(std::min(entry.find_first_not_of(whitespace_chars), entry.size()));
@@ -681,9 +691,11 @@ void alc_initconfig()
 
     if(auto exclopt = ConfigValueStr({}, {}, "excludefx"sv))
     {
-        std::ranges::for_each(*exclopt | std::views::split(','), [](auto&& namerange) noexcept
+        std::ranges::for_each(*exclopt | std::views::split(','),
+            [](std::ranges::contiguous_range auto&& namerange) noexcept
         {
-            const auto entry = std::string_view{namerange.begin(), namerange.end()};
+            const auto entry = std::string_view{std::to_address(namerange.begin()),
+                namerange.size()};
             std::ranges::for_each(gEffectList, [entry](const EffectList &effectitem) noexcept
             {
                 if(entry == effectitem.name)

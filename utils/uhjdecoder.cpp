@@ -43,12 +43,12 @@
 
 #include "alnumeric.h"
 #include "alstring.h"
+#include "altypes.hpp"
 #include "filesystem.h"
 #include "fmt/base.h"
 #include "fmt/ostream.h"
 #include "fmt/std.h"
 #include "opthelpers.h"
-#include "phase_shifter.h"
 #include "vector.h"
 
 #include "sndfile.h"
@@ -57,8 +57,10 @@
 
 #if HAVE_CXXMODULES
 import gsl;
+import phase_shifter;
 #else
 #include "gsl/gsl"
+#include "phase_shifter.hpp"
 #endif
 
 
@@ -124,7 +126,7 @@ struct UhjDecoder {
         std::span<FloatBufferLine> OutSamples, usize SamplesToDo);
 };
 
-auto const PShift = PhaseShifterT<UhjDecoder::sFilterDelay*2>{};
+auto const &PShift = gPShifter<UhjDecoder::sFilterDelay*2>;
 
 
 /* Decoding UHJ is done as:
@@ -393,7 +395,7 @@ auto main(std::span<std::string_view> args) -> int
             return;
         }
 
-        auto const inchannels = u32::make_from(ininfo.channels);
+        auto const inchannels = u32::from(ininfo.channels);
         auto outchans = u32{};
         if(inchannels == 2)
             outchans = 3;
@@ -427,9 +429,9 @@ auto main(std::span<std::string_view> args) -> int
         // 16-bit val, channel count
         fwrite16le(outchans.cast_to<u16>(), outfile);
         // 32-bit val, frequency
-        fwrite32le(u32::make_from(ininfo.samplerate), outfile);
+        fwrite32le(u32::from(ininfo.samplerate), outfile);
         // 32-bit val, bytes per second
-        fwrite32le(u32::make_from(ininfo.samplerate)*outchans*sizeof(float), outfile);
+        fwrite32le(u32::from(ininfo.samplerate)*outchans*sizeof(float), outfile);
         // 16-bit val, frame size
         fwrite16le((sizeof(float)*outchans).cast_to<u16>(), outfile);
         // 16-bit val, bits per sample
@@ -468,7 +470,7 @@ auto main(std::span<std::string_view> args) -> int
         auto LeadOut = usize{UhjDecoder::sFilterDelay};
         while(LeadOut > 0)
         {
-            auto got = al::saturate_cast<usize>(sf_readf_float(infile.get(), inmem.data(),
+            auto got = al::saturate_cast<std::size_t>(sf_readf_float(infile.get(), inmem.data(),
                 BufferLineSize));
             if(got < BufferLineSize)
             {
@@ -512,9 +514,9 @@ auto main(std::span<std::string_view> args) -> int
         {
             auto const dataLen = DataEnd - DataStart;
             if(outfile.seekp(4))
-                fwrite32le(u32::make_from(DataEnd-8), outfile); // 'WAVE' header len
+                fwrite32le(u32::from(DataEnd-8), outfile); // 'WAVE' header len
             if(outfile.seekp(DataStart-4))
-                fwrite32le(u32::make_from(dataLen), outfile); // 'data' header len
+                fwrite32le(u32::from(dataLen), outfile); // 'data' header len
         }
         outfile.flush();
         ++num_decoded;

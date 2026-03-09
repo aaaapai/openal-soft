@@ -10,15 +10,50 @@
 #include <type_traits>
 
 #include "alformat.hpp"
-#include "altypes.hpp"
 #include "opthelpers.h"
 #include "gsl/gsl"
 
 
+struct i8;
+struct u8;
+struct i16;
+struct u16;
+struct i32;
+struct u32;
+struct i64;
+struct u64;
+struct f32;
+struct f64;
+struct isize;
+
+namespace al {
+
+template<typename>
+struct make_strong { };
+
+template<> struct make_strong<std::int8_t> { using type = i8; };
+template<> struct make_strong<std::uint8_t> { using type = u8; };
+template<> struct make_strong<std::int16_t> { using type = i16; };
+template<> struct make_strong<std::uint16_t> { using type = u16; };
+template<> struct make_strong<std::int32_t> { using type = i32; };
+template<> struct make_strong<std::uint32_t> { using type = u32; };
+template<> struct make_strong<std::int64_t> { using type = i64; };
+template<> struct make_strong<std::uint64_t> { using type = u64; };
+template<> struct make_strong<float> { using type = f32; };
+template<> struct make_strong<double> { using type = f64; };
+
+template<typename T>
+using make_strong_t = typename make_strong<T>::type;
+
+} /* namespace al */
+
+using sys_int = al::make_strong_t<int>;
+using sys_uint = al::make_strong_t<unsigned>;
+
 namespace al {
 
 /* A "weak number" is a standard number type. They are prone to implicit
- * conversions, unexpected type promotions, and signedness mismatches
+ * conversions, unexpected type promotions, and signedness mismatches,
  * producing unexpected results.
  */
 template<typename T>
@@ -28,38 +63,38 @@ concept weak_number = std::integral<T> or std::floating_point<T>;
  * to be non-narrowing, e.g. int16 -> float(32) and int32 -> double(64) are
  * fine since all platforms we currently care about won't lose precision.
  */
-template<typename T, typename U>
-concept might_narrow = sizeof(T) < sizeof(U)
-    or (std::unsigned_integral<T> and std::signed_integral<U>)
-    or (std::integral<T> and std::floating_point<U>)
-    or (sizeof(T) == sizeof(U)
-        and ((std::signed_integral<T> and std::unsigned_integral<U>)
-            or (std::floating_point<T> and std::integral<U>)));
+template<typename To, typename From>
+concept might_narrow = sizeof(To) < sizeof(From)
+    or (std::unsigned_integral<To> and std::signed_integral<From>)
+    or (std::integral<To> and std::floating_point<From>)
+    or (sizeof(To) == sizeof(From)
+        and ((std::signed_integral<To> and std::unsigned_integral<From>)
+            or (std::floating_point<To> and std::integral<From>)));
 
 template<typename T, typename U>
 concept has_common = not might_narrow<T, U> or not might_narrow<U, T>;
 
 
-template<weak_number T, weak_number U> [[nodiscard]] constexpr
-auto convert_to(U const &value) noexcept(not might_narrow<T, U>) -> T
+template<weak_number To, weak_number From> [[nodiscard]] constexpr
+auto convert_to(From const &value) noexcept(not might_narrow<To, From>) -> To
 {
-    if constexpr(not might_narrow<T, U>)
-        return static_cast<T>(value);
+    if constexpr(not might_narrow<To, From>)
+        return static_cast<To>(value);
     else
     {
-        if constexpr(std::signed_integral<T> and std::unsigned_integral<U>)
+        if constexpr(std::signed_integral<To> and std::unsigned_integral<From>)
         {
-            if(U{std::numeric_limits<T>::max()} < value)
+            if(From{std::numeric_limits<To>::max()} < value)
                 throw std::out_of_range{"Too large unsigned to signed"};
         }
-        else if constexpr(std::unsigned_integral<T> and std::signed_integral<U>)
+        else if constexpr(std::unsigned_integral<To> and std::signed_integral<From>)
         {
-            if(value < U{0})
+            if(value < From{0})
                 throw std::out_of_range{"Negative signed to unsigned"};
         }
 
-        auto const ret = static_cast<T>(value);
-        if(static_cast<U>(ret) != value)
+        auto const ret = static_cast<To>(value);
+        if(static_cast<From>(ret) != value)
             throw std::out_of_range{"Conversion narrowed"};
         return ret;
     }
@@ -121,9 +156,18 @@ concept strong_floating_point = strong_number<T> and std::floating_point<typenam
  *
  * will compile and work as expected.
  */
-template<typename T, typename U>
-concept compatible_constant = (std::integral<U> and std::integral<T>)
-    or (std::floating_point<U> and (std::integral<T> or sizeof(U) >= sizeof(T)));
+template<typename ConstType, typename VarType>
+concept compatible_constant = (std::integral<ConstType> and std::integral<VarType>)
+    or (std::floating_point<VarType>
+        and (std::integral<ConstType> or sizeof(ConstType) <= sizeof(VarType)));
+
+
+/* Models a weak number type that can be converted to the given strong number
+ * type without narrowing.
+ */
+template<typename WeakType, typename StrongType>
+concept compatible_weak_number = weak_number<WeakType> and strong_number<StrongType>
+    and not might_narrow<typename StrongType::value_t, WeakType>;
 
 
 /* This ConstantNum class is a wrapper to handle various operations with
@@ -142,23 +186,21 @@ struct ConstantNum {
 };
 
 
-struct UInt;
-
-
 namespace detail_ {
 
 template<typename>
 struct signed_difference { using type = void; };
 
-template<typename T> requires(std::integral<T>)
+template<std::integral T>
 struct signed_difference<T> { using type = std::make_signed_t<T>; };
 
 }
 
 /* Strong numbers are implemented using CRTP to act as a mixin of sorts. */
 template<weak_number ValueType, typename SelfType>
-    requires(not std::is_const_v<ValueType> and not std::is_volatile_v<ValueType>)
 class number_base {
+    static_assert(not std::is_const_v<ValueType> and not std::is_volatile_v<ValueType>);
+
     friend SelfType;
 
     /* Force printing smaller types as (unsigned) int. Always treat these as
@@ -237,7 +279,9 @@ public:
     number_base(ConstantNum<ValueType> const &value) noexcept : c_val{value.c_val} { }
 
     template<weak_number U> force_inline static constexpr
-    auto make_from(U const &value) noexcept(not might_narrow<ValueType, U>) -> SelfType
+    auto from(U const &value)
+        noexcept(not might_narrow<ValueType, U> or std::floating_point<ValueType>)
+        -> SelfType
     {
         /* Converting to a floating point type isn't checked here because it's
          * nearly impossible to otherwise ensure a large enough integer or
@@ -252,11 +296,40 @@ public:
     }
 
     [[nodiscard]] force_inline static constexpr
+    auto bit_pack(std::byte const value) noexcept -> SelfType requires(sizeof(value_t) == 1)
+    {
+        return std::bit_cast<SelfType>(value);
+    }
+
+    [[nodiscard]] force_inline static constexpr
     auto bit_pack(std::byte const hi, std::byte const lo) noexcept -> SelfType
         requires(sizeof(value_t) == 2)
     {
         auto const ret = static_cast<std::uint16_t>((to_integer<std::uint16_t>(hi)<<8)
             | to_integer<std::uint16_t>(lo));
+        return std::bit_cast<SelfType>(ret);
+    }
+
+    [[nodiscard]] force_inline static constexpr
+    auto bit_pack(std::byte const hi, std::byte const midhi, std::byte const midlo,
+        std::byte const lo) noexcept -> SelfType requires(sizeof(value_t) == 4)
+    {
+        auto const ret = (to_integer<std::uint32_t>(hi)<<24)
+            | (to_integer<std::uint32_t>(midhi)<<16) | (to_integer<std::uint32_t>(midlo)<<8)
+            | to_integer<std::uint32_t>(lo);
+        return std::bit_cast<SelfType>(ret);
+    }
+
+    [[nodiscard]] force_inline static constexpr
+    auto bit_pack(std::byte const hi, std::byte const mid6, std::byte const mid5,
+        std::byte const mid4, std::byte const mid3, std::byte const mid2, std::byte const mid1,
+        std::byte const lo) noexcept -> SelfType requires(sizeof(value_t) == 8)
+    {
+        auto const ret = (to_integer<std::uint64_t>(hi)<<56)
+            | (to_integer<std::uint64_t>(mid6)<<48) | (to_integer<std::uint64_t>(mid5)<<40)
+            | (to_integer<std::uint64_t>(mid4)<<32) | (to_integer<std::uint64_t>(mid3)<<24)
+            | (to_integer<std::uint64_t>(mid2)<<16) | (to_integer<std::uint64_t>(mid1)<<8)
+            | to_integer<std::uint64_t>(lo);
         return std::bit_cast<SelfType>(ret);
     }
 
@@ -286,13 +359,11 @@ public:
      */
     template<strong_number U> [[nodiscard]] force_inline constexpr
     auto cast_to() const
-        noexcept(not might_narrow<typename U::value_t,ValueType>
+        noexcept(not might_narrow<typename U::value_t, ValueType>
             or std::floating_point<typename U::value_t>)
         -> U
     {
-        /* Like make_from, converting to a floating point type isn't checked
-         * here.
-         */
+        /* Like from(), converting to a floating point type isn't checked here. */
         if constexpr(std::floating_point<typename U::value_t>)
             return U{static_cast<typename U::value_t>(c_val)};
         else
@@ -362,9 +433,9 @@ public:
     }
 
     [[nodiscard]] force_inline constexpr
-    auto popcount() const noexcept -> UInt requires(std::integral<ValueType>);
+    auto popcount() const noexcept -> sys_uint requires(std::integral<ValueType>);
     [[nodiscard]] force_inline constexpr
-    auto countr_zero() const noexcept -> UInt requires(std::integral<ValueType>);
+    auto countr_zero() const noexcept -> sys_uint requires(std::integral<ValueType>);
 
     [[nodiscard]] force_inline constexpr
     auto abs() const noexcept -> SelfType { return SelfType{std::abs(c_val)}; }
@@ -540,8 +611,9 @@ auto operator~(T const &value) noexcept -> T
 
 /* Our binary ops only promote to the larger of the two operands, when the
  * conversion can't narrow (e.g. i8 + i16 = i16, while u32 + i16 = error).
- * If one operand is a constant, it must fit the type of the other operand, and
- * the result won't be promoted.
+ * If one operand is a weak number type, it must be convertible to the other
+ * operand's type without narrowing. If one operand is a constant, the value
+ * must fit the other operand's type, and the result won't be promoted.
  */
 
 #define DECL_BINARY(op)                                                       \
@@ -557,12 +629,23 @@ constexpr auto operator op(T const &lhs, U const &rhs) noexcept               \
     else                                                                      \
         return T{};                                                           \
 }                                                                             \
+                                                                              \
+template<al::strong_number T> [[nodiscard]] force_inline constexpr            \
+auto operator op(T const &lhs, al::compatible_weak_number<T> auto const &rhs) \
+    noexcept -> T                                                             \
+{ return T{static_cast<typename T::value_t>(lhs.c_val op rhs)}; }             \
+template<al::strong_number T> [[nodiscard]] force_inline constexpr            \
+auto operator op(al::compatible_weak_number<T> auto const &lhs, T const &rhs) \
+    noexcept -> T                                                             \
+{ return T{static_cast<typename T::value_t>(lhs op rhs.c_val)}; }             \
+                                                                              \
 template<al::strong_number T> [[nodiscard]] force_inline constexpr            \
 auto operator op(T const &lhs, al::ConstantNum<typename T::value_t> const &rhs) noexcept -> T \
 { return T{static_cast<typename T::value_t>(lhs.c_val op rhs.c_val)}; }       \
 template<al::strong_number T> [[nodiscard]] force_inline constexpr            \
 auto operator op(al::ConstantNum<typename T::value_t> const &lhs, T const &rhs) noexcept -> T \
 { return T{static_cast<typename T::value_t>(lhs.c_val op rhs.c_val)}; }
+
 DECL_BINARY(+)
 DECL_BINARY(-)
 DECL_BINARY(*)
@@ -572,49 +655,52 @@ DECL_BINARY(|)
 DECL_BINARY(&)
 DECL_BINARY(^)
 #undef DECL_BINARY
+
 /* Binary ops >> and << between strong number types. Note that the right-side
  * operand type doesn't influence the return type, as this is only modifying
- * the left-side operand value.
+ * the left-side operand value (e.g. 1_u8 << 1_u32 == 2_u8).
  */
-#define DECL_BINARY(op)                                                       \
-template<al::strong_number T, al::strong_number U> [[nodiscard]] force_inline \
-constexpr auto operator op(T const &lhs, U const &rhs) noexcept -> T          \
-{ return T{static_cast<typename T::value_t>(lhs.c_val op rhs.c_val)}; }
-DECL_BINARY(>>)
-DECL_BINARY(<<)
-#undef DECL_BINARY
+template<al::strong_number T> [[nodiscard]] force_inline constexpr
+auto operator>>(T const &lhs, al::strong_number auto const &rhs) noexcept -> T
+{ return T{static_cast<typename T::value_t>(lhs.c_val >> rhs.c_val)}; }
+
+template<al::strong_number T> [[nodiscard]] force_inline constexpr
+auto operator<<(T const &lhs, al::strong_number auto const &rhs) noexcept -> T
+{ return T{static_cast<typename T::value_t>(lhs.c_val << rhs.c_val)}; }
 
 /* Binary ops >> and << between a strong number type and weak integer.
  * Unlike the other operations, these don't require the weak integer to be
  * constant because the result type is always the same as the left-side
  * operand.
  */
-#define DECL_BINARY(op)                                                       \
-template<al::strong_number T, std::integral U> [[nodiscard]] force_inline     \
-constexpr auto operator op(T const &lhs, U const &rhs) noexcept -> T          \
-{ return T{static_cast<typename T::value_t>(lhs.c_val op rhs)}; }
-DECL_BINARY(>>)
-DECL_BINARY(<<)
-#undef DECL_BINARY
+template<al::strong_number T> [[nodiscard]] force_inline constexpr
+auto operator>>(T const &lhs, std::integral auto const &rhs) noexcept -> T
+{ return T{static_cast<typename T::value_t>(lhs.c_val >> rhs)}; }
 
-/* Increment/decrement a strong integral using its difference type. */
-template<al::strong_integral T, std::same_as<typename T::difference_type> U> [[nodiscard]]
-    force_inline constexpr
-auto operator+(T const &lhs, U const &rhs) noexcept -> T
+template<al::strong_number T> [[nodiscard]] force_inline constexpr
+auto operator<<(T const &lhs, std::integral auto const &rhs) noexcept -> T
+{ return T{static_cast<typename T::value_t>(lhs.c_val << rhs)}; }
+
+/* Increment/decrement a strong unsigned integral using its signed difference
+ * type.
+ */
+template<al::strong_unsigned_integral T> [[nodiscard]] force_inline constexpr
+auto operator+(T const &lhs, std::same_as<typename T::difference_type> auto const &rhs) noexcept
+    -> T
 { return T{static_cast<typename T::value_t>(lhs.c_val + static_cast<typename T::value_t>(rhs))}; }
 
-template<al::strong_integral T, std::same_as<typename T::difference_type> U> [[nodiscard]]
-    force_inline constexpr
-auto operator+(U const &lhs, T const &rhs) noexcept -> T
+template<al::strong_unsigned_integral T> [[nodiscard]] force_inline constexpr
+auto operator+(std::same_as<typename T::difference_type> auto const &lhs, T const &rhs) noexcept
+    -> T
 { return T{static_cast<typename T::value_t>(static_cast<typename T::value_t>(lhs) + rhs.c_val)}; }
 
-template<al::strong_integral T, std::same_as<typename T::difference_type> U> [[nodiscard]]
-    force_inline constexpr
-auto operator-(T const &lhs, U const &rhs) noexcept -> T
+template<al::strong_unsigned_integral T> [[nodiscard]] force_inline constexpr
+auto operator-(T const &lhs, std::same_as<typename T::difference_type> auto const &rhs) noexcept
+    -> T
 { return T{static_cast<typename T::value_t>(lhs.c_val - static_cast<typename T::value_t>(rhs))}; }
 
 /* Our binary assignment ops only promote the rhs value to the lhs type when
- * the conversion can't lose information, and produces an error otherwise.
+ * the conversion can't narrow, and produces an error otherwise.
  */
 
 #define DECL_BINASSIGN(op)                                                    \
@@ -627,9 +713,14 @@ auto operator op(T &lhs LIFETIMEBOUND, U const &rhs) noexcept -> T&           \
     return lhs;                                                               \
 }                                                                             \
 template<al::strong_number T> force_inline constexpr                          \
-auto operator op(T &lhs LIFETIMEBOUND, al::ConstantNum<typename T::value_t> const &rhs) \
-    noexcept -> T&                                                            \
+auto operator op(T &lhs LIFETIMEBOUND,                                        \
+    al::compatible_weak_number<T> auto const &rhs) noexcept -> T&             \
+{ lhs.c_val op rhs; return lhs; }                                             \
+template<al::strong_number T> force_inline constexpr                          \
+auto operator op(T &lhs LIFETIMEBOUND,                                        \
+    al::ConstantNum<typename T::value_t> const &rhs) noexcept -> T&           \
 { lhs.c_val op rhs.c_val; return lhs; }
+
 DECL_BINASSIGN(+=)
 DECL_BINASSIGN(-=)
 DECL_BINASSIGN(*=)
@@ -639,30 +730,34 @@ DECL_BINASSIGN(|=)
 DECL_BINASSIGN(&=)
 DECL_BINASSIGN(^=)
 #undef DECL_BINASSIGN
+
 /* Binary assignment ops >>= and <<=. Integer constants for the right side
  * operand must fit an uint8 type.
  */
 #define DECL_BINASSIGN(op)                                                    \
-template<al::strong_number T, al::strong_number U> force_inline constexpr     \
-auto operator op(T &lhs LIFETIMEBOUND, U const &rhs) noexcept -> T&           \
+template<al::strong_number T> force_inline constexpr                          \
+auto operator op(T &lhs LIFETIMEBOUND,                                        \
+    al::strong_number auto const &rhs) noexcept -> T&                         \
 { lhs.c_val op rhs.c_val; return lhs; }                                       \
 template<al::strong_number T> force_inline constexpr                          \
-auto operator op(T &lhs LIFETIMEBOUND, al::ConstantNum<std::uint8_t> const &rhs) \
-    noexcept -> T&                                                            \
+auto operator op(T &lhs LIFETIMEBOUND,                                        \
+    al::ConstantNum<std::uint8_t> const &rhs) noexcept -> T&                  \
 { lhs.c_val op static_cast<typename T::value_t>(rhs.c_val); return lhs; }
 DECL_BINASSIGN(>>=)
 DECL_BINASSIGN(<<=)
 #undef DECL_BINASSIGN
 
-/* Offset a strong integral using its difference type. */
-#define DECL_BINASSIGN(op)                                                    \
-template<al::strong_integral T, std::same_as<typename T::difference_type> U>  \
-    force_inline constexpr                                                    \
-auto operator op(T &lhs LIFETIMEBOUND, U const &rhs) noexcept -> T&           \
-{ lhs.c_val op static_cast<typename T::value_t>(rhs); return lhs; }
-DECL_BINASSIGN(+=)
-DECL_BINASSIGN(-=)
-#undef DECL_BINASSIGN
+/* Offset a strong unsigned integral using its signed difference type. */
+template<al::strong_unsigned_integral T> force_inline constexpr
+auto operator+=(T &lhs LIFETIMEBOUND, std::same_as<typename T::difference_type> auto const &rhs)
+    noexcept -> T&
+{ lhs.c_val += static_cast<typename T::value_t>(rhs); return lhs; }
+
+template<al::strong_unsigned_integral T> force_inline constexpr
+auto operator-=(T &lhs LIFETIMEBOUND, std::same_as<typename T::difference_type> auto const &rhs)
+    noexcept -> T&
+{ lhs.c_val -= static_cast<typename T::value_t>(rhs); return lhs; }
+
 
 /* Three-way comparison operator between strong number types, from which other
  * comparison operators are synthesized. Implicitly handles signedness
@@ -811,30 +906,26 @@ DECL_NUMBERTYPE(u64, std::uint64_t)
 DECL_NUMBERTYPE(f32, float)
 DECL_NUMBERTYPE(f64, double)
 
-using isize = std::make_signed_t<std::size_t>;
+DECL_NUMBERTYPE(isize, std::make_signed_t<std::size_t>);
 using usize = std::size_t;
+#undef DECL_NUMBERTYPE
 
 namespace al {
 
-DECL_NUMBERTYPE(UInt, unsigned)
-#undef DECL_NUMBERTYPE
-
-template<weak_number T, typename SelfType>
-    requires(not std::is_const_v<T> and not std::is_volatile_v<T>) [[nodiscard]] force_inline
-constexpr auto number_base<T,SelfType>::popcount() const noexcept -> UInt
-    requires(std::integral<T>)
+template<weak_number ValueType, typename SelfType> [[nodiscard]] force_inline
+constexpr auto number_base<ValueType, SelfType>::popcount() const noexcept -> sys_uint
+    requires(std::integral<ValueType>)
 {
-    using unsigned_t = std::make_unsigned_t<T>;
-    return UInt{static_cast<unsigned>(std::popcount(static_cast<unsigned_t>(c_val)))};
+    using unsigned_t = std::make_unsigned_t<ValueType>;
+    return sys_uint{static_cast<unsigned>(std::popcount(static_cast<unsigned_t>(c_val)))};
 }
 
-template<weak_number T, typename SelfType>
-    requires(not std::is_const_v<T> and not std::is_volatile_v<T>) [[nodiscard]] force_inline
-constexpr auto number_base<T,SelfType>::countr_zero() const noexcept -> UInt
-    requires(std::integral<T>)
+template<weak_number ValueType, typename SelfType> [[nodiscard]] force_inline
+constexpr auto number_base<ValueType, SelfType>::countr_zero() const noexcept -> sys_uint
+    requires(std::integral<ValueType>)
 {
-    using unsigned_t = std::make_unsigned_t<T>;
-    return UInt{static_cast<unsigned>(std::countr_zero(static_cast<unsigned_t>(c_val)))};
+    using unsigned_t = std::make_unsigned_t<ValueType>;
+    return sys_uint{static_cast<unsigned>(std::countr_zero(static_cast<unsigned_t>(c_val)))};
 }
 
 } /* namespace al */
@@ -849,39 +940,107 @@ template<typename CharT> struct al::formatter<i64, CharT> : i64::formatter<CharT
 template<typename CharT> struct al::formatter<u64, CharT> : u64::formatter<CharT> { };
 template<typename CharT> struct al::formatter<f32, CharT> : f32::formatter<CharT> { };
 template<typename CharT> struct al::formatter<f64, CharT> : f64::formatter<CharT> { };
-template<typename CharT> struct al::formatter<al::UInt, CharT> : al::UInt::formatter<CharT> { };
 
 [[nodiscard]] consteval
-auto operator ""_i8(unsigned long long const n) noexcept { return i8::make_from(n); }
+auto operator ""_i8(unsigned long long const n) noexcept { return i8::from(n); }
 [[nodiscard]] consteval
-auto operator ""_u8(unsigned long long const n) noexcept { return u8::make_from(n); }
+auto operator ""_u8(unsigned long long const n) noexcept { return u8::from(n); }
 
 [[nodiscard]] consteval
-auto operator ""_i16(unsigned long long const n) noexcept { return i16::make_from(n); }
+auto operator ""_i16(unsigned long long const n) noexcept { return i16::from(n); }
 [[nodiscard]] consteval
-auto operator ""_u16(unsigned long long const n) noexcept { return u16::make_from(n); }
+auto operator ""_u16(unsigned long long const n) noexcept { return u16::from(n); }
 
 [[nodiscard]] consteval
-auto operator ""_i32(unsigned long long const n) noexcept { return i32::make_from(n); }
+auto operator ""_i32(unsigned long long const n) noexcept { return i32::from(n); }
 [[nodiscard]] consteval
-auto operator ""_u32(unsigned long long const n) noexcept { return u32::make_from(n); }
+auto operator ""_u32(unsigned long long const n) noexcept { return u32::from(n); }
 
 [[nodiscard]] consteval
-auto operator ""_i64(unsigned long long const n) noexcept { return i64::make_from(n); }
+auto operator ""_i64(unsigned long long const n) noexcept { return i64::from(n); }
 [[nodiscard]] consteval
-auto operator ""_u64(unsigned long long const n) noexcept { return u64::make_from(n); }
+auto operator ""_u64(unsigned long long const n) noexcept { return u64::from(n); }
 
 [[nodiscard]] consteval
-auto operator ""_f32(long double const n) noexcept { return f32::make_from(n); }
+auto operator ""_f32(long double const n) noexcept { return f32::from(n); }
 [[nodiscard]] consteval
-auto operator ""_f64(long double const n) noexcept { return f64::make_from(n); }
+auto operator ""_f64(long double const n) noexcept { return f64::from(n); }
 
 [[nodiscard]] consteval
-auto operator ""_z(unsigned long long const n) noexcept { return gsl::narrow<isize>(n); }
+auto operator ""_isize(unsigned long long const n) noexcept { return isize::from(n); }
+
+[[nodiscard]] consteval
+auto operator ""_z(unsigned long long const n) noexcept { return gsl::narrow<isize::value_t>(n); }
 [[nodiscard]] consteval
 auto operator ""_uz(unsigned long long const n) noexcept { return gsl::narrow<usize>(n); }
 [[nodiscard]] consteval
 auto operator ""_zu(unsigned long long const n) noexcept { return gsl::narrow<usize>(n); }
+
+
+namespace std {
+
+/* Declare the common type between strong number types, where one fits the
+ * other. Note that the result must be order invariant, that is, if
+ * common_type_t<A, B> results in A, then common_type_t<B, A> must also result
+ * in A. Similarly, if common_type_t<A, B> results in C, then
+ * common_type_t<B, A> must also result in C. Consequently, since isize and
+ * usize may be interconvertible with other types, these base specializations
+ * will never result in isize or usize.
+ */
+template<al::strong_number T, al::strong_number U>
+    requires(not std::same_as<T, isize> and not std::same_as<T, usize>
+        and not al::might_narrow<typename T::value_t, typename U::value_t>)
+struct common_type<T, U> { using type = T; };
+
+template<al::strong_number T, al::strong_number U>
+    requires(not std::same_as<U, isize> and not std::same_as<U, usize>
+        and not al::might_narrow<typename U::value_t, typename T::value_t>
+        and al::might_narrow<typename T::value_t, typename U::value_t>)
+struct common_type<T, U> { using type = U; };
+
+/* Declare the common type between signed and unsigned strong number types,
+ * where a larger signed type is needed.
+ */
+template<> struct common_type<i8, u8> { using type = i16; };
+template<> struct common_type<i8, u16> { using type = i32; };
+template<> struct common_type<i8, u32> { using type = i64; };
+template<> struct common_type<i16, u16> { using type = i32; };
+template<> struct common_type<i16, u32> { using type = i64; };
+template<> struct common_type<i32, u32> { using type = i64; };
+
+template<> struct common_type<u8, i8> { using type = i16; };
+template<> struct common_type<u16, i8> { using type = i32; };
+template<> struct common_type<u32, i8> { using type = i64; };
+template<> struct common_type<u16, i16> { using type = i32; };
+template<> struct common_type<u32, i16> { using type = i64; };
+template<> struct common_type<u32, i32> { using type = i64; };
+
+/* Declare the common type between equal-sized strong integer and floating
+ * point types, where a larger floating point type is needed.
+ */
+template<> struct common_type<f32, i32> { using type = f64; };
+template<> struct common_type<f32, u32> { using type = f64; };
+template<> struct common_type<i32, f32> { using type = f64; };
+template<> struct common_type<u32, f32> { using type = f64; };
+
+/* Declare the common type between strong integer types where isize (and later
+ * usize) is the appropriate result type.
+ */
+template<al::strong_integral T> requires(sizeof(T) < sizeof(isize) or std::same_as<T, isize>)
+struct common_type<isize, T> { using type = isize; };
+template<al::strong_integral T> requires(sizeof(T) < sizeof(isize))
+struct common_type<T, isize> { using type = isize; };
+
+/* Declare the common type between a strong and weak number type, ensuring the
+ * appropriate strong number type is provided.
+ */
+template<al::strong_number T, al::weak_number U>
+struct common_type<T, U> : common_type<T, al::make_strong_t<U>> { };
+
+template<al::weak_number T, al::strong_number U>
+struct common_type<T, U> : common_type<al::make_strong_t<T>, U> { };
+
+} /* namespace std */
 
 
 template<al::strong_number T> [[nodiscard]] force_inline constexpr

@@ -25,12 +25,11 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <bit>
 #include <bitset>
 #include <chrono>
 #include <cmath>
 #include <concepts>
-#include <cstdio>
+#include <cstddef>
 #include <iterator>
 #include <functional>
 #include <limits>
@@ -57,7 +56,6 @@
 #include "alc/context.h"
 #include "alc/device.h"
 #include "alc/inprogext.h"
-#include "alformat.hpp"
 #include "almalloc.h"
 #include "alnumeric.h"
 #include "atomic.h"
@@ -65,7 +63,6 @@
 #include "buffer.h"
 #include "core/buffer_storage.h"
 #include "core/except.h"
-#include "core/logging.h"
 #include "core/mixer/defs.h"
 #include "core/voice_change.h"
 #include "direct_defs.h"
@@ -80,6 +77,12 @@
 #include "eax/call.h"
 #include "eax/fx_slot_index.h"
 #include "eax/utils.h"
+#endif
+
+#if HAVE_CXXMODULES
+import logging;
+#else
+#include "core/logging.h"
 #endif
 
 
@@ -839,7 +842,7 @@ auto LookupBuffer(std::nothrow_t, gsl::not_null<al::Device*> const device,
     if((sublist.mFreeMask & (1_u64 << slidx)) != 0) [[unlikely]]
         return nullptr;
     return std::to_address(std::next(sublist.mBuffers->begin(),
-        gsl::narrow_cast<isize>(slidx)));
+        gsl::narrow_cast<std::ptrdiff_t>(slidx)));
 }
 
 [[nodiscard]]
@@ -864,7 +867,7 @@ auto LookupFilter(std::nothrow_t, gsl::not_null<al::Device*> const device,
     if((sublist.mFreeMask & (1_u64 << slidx)) != 0) [[unlikely]]
         return nullptr;
     return std::to_address(std::next(sublist.mFilters->begin(),
-        gsl::narrow_cast<isize>(slidx)));
+        gsl::narrow_cast<std::ptrdiff_t>(slidx)));
 }
 
 [[nodiscard]]
@@ -888,7 +891,8 @@ auto LookupEffectSlot(std::nothrow_t, gsl::not_null<al::Context*> const context,
     auto &sublist = context->mEffectSlotList[gsl::narrow_cast<usize>(lidx)];
     if((sublist.mFreeMask & (1_u64 << slidx)) != 0) [[unlikely]]
         return nullptr;
-    return std::to_address(sublist.mEffectSlots->begin() + gsl::narrow_cast<isize>(slidx));
+    return std::to_address(std::next(sublist.mEffectSlots->begin(),
+        gsl::narrow_cast<std::ptrdiff_t>(slidx)));
 }
 
 [[nodiscard]]
@@ -2512,13 +2516,13 @@ void GetProperty(const gsl::not_null<al::Source*> Source,
 }
 
 
-using source_store_single = std::array<gsl::not_null<al::Source*>,1>;
+using source_store_single = std::array<gsl::not_null<al::Source*>, 1>;
 using source_store_vector = std::vector<gsl::not_null<al::Source*>>;
 using source_store_variant = std::variant<std::monostate,source_store_single,source_store_vector>;
 
-constexpr auto get_srchandles(gsl::not_null<al::Context*> const context,
-    source_store_variant &source_store, std::span<ALuint const> const sids)
-    -> std::span<gsl::not_null<al::Source*>>
+[[nodiscard]]
+auto get_srchandles(gsl::not_null<al::Context*> const context, source_store_variant &source_store,
+    std::span<ALuint const> const sids) -> std::span<gsl::not_null<al::Source*>>
 {
     if(sids.size() == 1)
     {
