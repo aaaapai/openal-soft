@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <span>
 #include <variant>
 
@@ -52,7 +53,7 @@ force_inline auto vmadd(__m128 const x, __m128 const y, __m128 const z) noexcept
 } // namespace
 
 void Resample_Linear_SSE4(InterpState const*, std::span<float const> const src, unsigned frac,
-    unsigned const increment, std::span<float> const dst)
+    unsigned const increment, std::span<float> const dst) noexcept NONBLOCKING
 {
     ASSUME(frac < MixerFracOne);
 
@@ -114,11 +115,11 @@ void Resample_Linear_SSE4(InterpState const*, std::span<float const> const src, 
 }
 
 void Resample_Cubic_SSE4(InterpState const *const state, std::span<float const> const src,
-    unsigned frac, unsigned const increment, std::span<float> const dst)
+    unsigned frac, unsigned const increment, std::span<float> const dst) noexcept NONBLOCKING
 {
     ASSUME(frac < MixerFracOne);
 
-    auto const filter = std::get<CubicState>(*state).filter;
+    auto const filter = gsl::not_null{std::get_if<CubicState>(state)}->filter;
 
     auto const increment4 = _mm_set1_epi32(as_signed(increment*4));
     auto const fracMask4 = _mm_set1_epi32(MixerFracMask);
@@ -191,7 +192,7 @@ void Resample_Cubic_SSE4(InterpState const *const state, std::span<float const> 
 
         std::ranges::generate(dst.last(todo), [&pos,&frac,src,increment,filter]
         {
-            auto const pi = usize{frac >> CubicPhaseDiffBits}; ASSUME(pi < CubicPhaseCount);
+            auto const pi = std::size_t{frac >> CubicPhaseDiffBits}; ASSUME(pi < CubicPhaseCount);
             auto const pf = gsl::narrow_cast<float>(frac&CubicPhaseDiffMask)
                 * (1.0f/CubicPhaseDiffOne);
             auto const pf4 = _mm_set1_ps(pf);

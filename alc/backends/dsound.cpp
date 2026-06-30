@@ -205,7 +205,7 @@ FORCE_ALIGN void DSoundPlayback::mixerProc() const
         return;
     }
 
-    auto const FrameStep = usize{mDevice->channelsFromFmt()};
+    auto const FrameStep = std::size_t{mDevice->channelsFromFmt()};
     auto const FrameSize = DWORD{mDevice->frameSizeFromFmt()};
     auto const FragSize = DWORD{mDevice->mUpdateSize} * FrameSize;
 
@@ -361,7 +361,7 @@ auto DSoundPlayback::reset() -> bool
         mDevice->FmtType = DevFmtUByte;
         break;
     case DevFmtFloat:
-        if(mDevice->Flags.test(SampleTypeRequest))
+        if(mDevice->mFlags.test(DeviceFlag::SampleTypeRequest))
             break;
         [[fallthrough]];
     case DevFmtUShort:
@@ -384,7 +384,7 @@ auto DSoundPlayback::reset() -> bool
             "Failed to get speaker config: {:#x}", as_unsigned(hr)};
 
     speakers = DSSPEAKER_CONFIG(speakers);
-    if(!mDevice->Flags.test(ChannelsRequest))
+    if(!mDevice->mFlags.test(DeviceFlag::ChannelsRequest))
     {
         if(speakers == DSSPEAKER_MONO)
             mDevice->FmtChans = DevFmtMono;
@@ -399,7 +399,7 @@ auto DSoundPlayback::reset() -> bool
         else
             ERR("Unknown system speaker config: {:#x}", speakers);
     }
-    mDevice->Flags.set(DirectEar, (speakers == DSSPEAKER_HEADPHONE));
+    mDevice->mFlags.set(DeviceFlag::DirectEar, (speakers == DSSPEAKER_HEADPHONE));
     auto const isRear51 = speakers == DSSPEAKER_5POINT1_BACK;
 
     switch(mDevice->FmtChans)
@@ -542,7 +542,7 @@ struct DSoundCapture final : BackendBase {
     void start() override;
     void stop() override;
     void captureSamples(std::span<std::byte> outbuffer) override;
-    auto availableSamples() -> usize override;
+    auto availableSamples() -> std::size_t override;
 
     ComPtr<IDirectSoundCapture> mDSC;
     ComPtr<IDirectSoundCaptureBuffer> mDSCbuffer;
@@ -704,7 +704,7 @@ void DSoundCapture::stop()
 void DSoundCapture::captureSamples(std::span<std::byte> outbuffer)
 { std::ignore = mRing->read(outbuffer); }
 
-auto DSoundCapture::availableSamples() -> usize
+auto DSoundCapture::availableSamples() -> std::size_t
 {
     if(mDevice->Connected.load(std::memory_order_acquire))
     {

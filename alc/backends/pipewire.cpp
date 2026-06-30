@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <bitset>
 #include <cinttypes>
 #include <cmath>
 #include <cstdio>
@@ -53,9 +52,8 @@
 #include "core/device.h"
 #include "core/helpers.h"
 #include "dynload.h"
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "fmt/ranges.h"
-#include "gsl/gsl"
 #include "opthelpers.h"
 #include "pragmadefs.h"
 #include "ringbuffer.h"
@@ -117,9 +115,9 @@ constexpr auto get_pod_type(const spa_pod *pod) noexcept
 { return SPA_POD_TYPE(pod); }
 
 template<typename T>
-constexpr auto get_pod_body(spa_pod const *const pod, usize const count) noexcept
+constexpr auto get_pod_body(spa_pod const *const pod, std::size_t const count) noexcept
 { return std::span<T>{static_cast<T*>(SPA_POD_BODY(pod)), count}; }
-template<typename T, usize N>
+template<typename T, std::size_t N>
 constexpr auto get_pod_body(spa_pod const *const pod) noexcept
 { return std::span<T,N>{static_cast<T*>(SPA_POD_BODY(pod)), N}; }
 
@@ -133,12 +131,16 @@ constexpr auto PwIdAny = PW_ID_ANY;
 
 } // namespace
 /* NOLINTEND */
-DIAGNOSTIC_POP
+DIAGNOSTIC_POP;
 
 #if HAVE_CXXMODULES
+import format.types;
+import gsl;
 import logging;
 #else
+#include "alformattypes.hpp"
 #include "core/logging.h"
+#include "gsl/gsl"
 #endif
 
 namespace {
@@ -382,7 +384,7 @@ auto pwire_load() -> bool
 #if PW_CHECK_VERSION(0,3,50)
 #define pw_stream_get_time_n ppw_stream_get_time_n
 #else
-inline auto pw_stream_get_time_n(pw_stream *stream, pw_time *ptime, usize /*size*/)
+inline auto pw_stream_get_time_n(pw_stream *stream, pw_time *ptime, size_t /*size*/)
 { return ppw_stream_get_time(stream, ptime); }
 #endif
 #endif
@@ -520,7 +522,7 @@ public:
 
     auto signal(bool const wait) const { return pw_thread_loop_signal(mLoop, wait); }
 
-    auto newContext(pw_properties *const props=nullptr, usize const user_data_size=0) const
+    auto newContext(pw_properties *const props=nullptr, std::size_t const user_data_size=0) const
     { return PwContextPtr{pw_context_new(getLoop(), props, user_data_size)}; }
 
     static auto Create(gsl::czstring const name, spa_dict *const props=nullptr)
@@ -1042,11 +1044,11 @@ void NodeProxy::infoCallback(void*, const pw_node_info *info) noexcept
         {
             errno = 0;
             auto *serial_end = gsl::zstring{};
-            serial_id = u64{std::strtoull(serial_str, &serial_end, 0)};
+            serial_id = std::strtoull(serial_str, &serial_end, 0);
             if(*serial_end != '\0' || errno == ERANGE)
             {
                 ERR("Unexpected object serial: {}", serial_str);
-                serial_id = u64{info->id};
+                serial_id = info->id;
             }
         }
 #endif
@@ -1058,13 +1060,9 @@ void NodeProxy::infoCallback(void*, const pw_node_info *info) noexcept
             return al::format("PipeWire node #{}", info->id);
         });
 
-        auto *form_factor = spa_dict_lookup(info->props, PW_KEY_DEVICE_FORM_FACTOR);
-        TRACE("Got {} device \"{}\"{}{}{}", AsString(ntype), devName ? devName : "(nil)",
-            form_factor?" (":"", form_factor?form_factor:"", form_factor?")":"");
-        TRACE("  \"{}\" = ID {}", name, serial_id);
-
         auto &node = EventManager::AddDevice(info->id);
         node.mSerial = serial_id;
+
         /* This method is called both to notify about a new sink/source node,
          * and update properties for the node. It's unclear what properties can
          * change for an existing node without being removed first, so err on
@@ -1078,6 +1076,27 @@ void NodeProxy::infoCallback(void*, const pw_node_info *info) noexcept
          *
          * This is overkill if the node type, name, and devname can't change.
          */
+        if(node.mName != name)
+        {
+            /* First, check if this name already exists for another node in the
+             * device list and needs a count suffix. If this node is already
+             * using the name, keep it.
+             */
+            auto const&& devlist = EventManager::GetDeviceList();
+            auto count = 1u;
+            auto newname = name;
+            while(node.mName != newname
+                and std::ranges::find(devlist, newname, &DeviceNode::mName) != devlist.end())
+                newname = al::format("{} #{}", name, ++count);
+            name = std::move(newname);
+        }
+
+        auto *form_factor = spa_dict_lookup(info->props, PW_KEY_DEVICE_FORM_FACTOR);
+        TRACE("Got {} device \"{}\"{}{}{}", AsString(ntype), devName ? devName : "(nil)",
+            form_factor?" (":"", form_factor?form_factor:"", form_factor?")":"");
+        TRACE("  \"{}\" = ID {}", name, serial_id);
+
+        /* Now check if the name is being changed. */
         auto notifyAdd = false;
         if(node.mName != name)
         {
@@ -1096,6 +1115,7 @@ void NodeProxy::infoCallback(void*, const pw_node_info *info) noexcept
         node.mType = ntype;
         node.mIsHeadphones = form_factor && (al::case_compare(form_factor, "headphones"sv) == 0
             || al::case_compare(form_factor, "headset"sv) == 0);
+
         if(notifyAdd)
         {
             const auto msg = al::format("Device added: {}", node.mName);
@@ -1519,7 +1539,7 @@ void PipeWirePlayback::outputCallback() noexcept
     if(!pw_buf) [[unlikely]] return;
 
     auto const datas = std::span{pw_buf->buffer->datas,
-        std::min(mChannelPtrs.size(), usize{pw_buf->buffer->n_datas})};
+        std::min(mChannelPtrs.size(), std::size_t{pw_buf->buffer->n_datas})};
 #if PW_CHECK_VERSION(0,3,49)
     /* In 0.3.49, pw_buffer::requested specifies the number of samples needed
      * by the resampler/graph for this audio update.
@@ -1648,7 +1668,7 @@ auto PipeWirePlayback::reset() -> bool
      * match its format.
      */
     auto is51rear = false;
-    mDevice->Flags.reset(DirectEar);
+    mDevice->mFlags.reset(DeviceFlag::DirectEar);
     if(mTargetId != PwIdAny)
     {
         const auto evtlock = EventWatcherLockGuard{gEventHandler};
@@ -1657,7 +1677,7 @@ auto PipeWirePlayback::reset() -> bool
         const auto match = std::ranges::find(devlist, mTargetId, &DeviceNode::mSerial);
         if(match != devlist.end())
         {
-            if(!mDevice->Flags.test(FrequencyRequest) && match->mSampleRate > 0)
+            if(!mDevice->mFlags.test(DeviceFlag::FrequencyRequest) && match->mSampleRate > 0)
             {
                 /* Scale the update size if the sample rate changes. */
                 const auto scale = gsl::narrow_cast<double>(match->mSampleRate)
@@ -1683,10 +1703,11 @@ auto PipeWirePlayback::reset() -> bool
                 }
                 mDevice->mSampleRate = match->mSampleRate;
             }
-            if(!mDevice->Flags.test(ChannelsRequest) && match->mChannels != InvalidChannelConfig)
+            if(!mDevice->mFlags.test(DeviceFlag::ChannelsRequest)
+                && match->mChannels != InvalidChannelConfig)
                 mDevice->FmtChans = match->mChannels;
             if(match->mChannels == DevFmtStereo && match->mIsHeadphones)
-                mDevice->Flags.set(DirectEar);
+                mDevice->mFlags.set(DeviceFlag::DirectEar);
             is51rear = match->mIs51Rear;
         }
     }
@@ -1969,7 +1990,7 @@ class PipeWireCapture final : public BackendBase {
     void start() override;
     void stop() override;
     void captureSamples(std::span<std::byte> outbuffer) override;
-    auto availableSamples() -> usize override;
+    auto availableSamples() -> std::size_t override;
 
     u64 mTargetId{PwIdAny};
     ThreadMainloop mLoop;
@@ -2222,7 +2243,7 @@ void PipeWireCapture::stop()
     { return pw_stream_get_state(stream, nullptr) != PW_STREAM_STATE_STREAMING; });
 }
 
-auto PipeWireCapture::availableSamples() -> usize
+auto PipeWireCapture::availableSamples() -> std::size_t
 { return mRing->readSpace(); }
 
 void PipeWireCapture::captureSamples(std::span<std::byte> const outbuffer)
@@ -2338,9 +2359,6 @@ auto PipeWireBackendFactory::queryEventSupport(alc::EventType const eventType, B
     case alc::EventType::DeviceAdded:
     case alc::EventType::DeviceRemoved:
         return alc::EventSupport::FullSupport;
-
-    case alc::EventType::Count:
-        break;
     }
     return alc::EventSupport::NoSupport;
 }

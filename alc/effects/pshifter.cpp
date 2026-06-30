@@ -84,8 +84,8 @@ struct FrequencyBin {
 
 struct PshifterState final : EffectState {
     /* Effect parameters */
-    usize mCount{};
-    usize mPos{};
+    std::size_t mCount{};
+    std::size_t mPos{};
     unsigned mPitchShiftI{};
     float mPitchShift{};
 
@@ -159,7 +159,8 @@ void PshifterState::deviceUpdate(DeviceBase const *device, BufferStorage const*)
         auto const splitter = BandSplitter{device->mXOverFreq
             / static_cast<float>(device->mSampleRate)};
 
-        auto &upsampler = mUpsampler.emplace();
+        using upsampler_t = decltype(mUpsampler)::value_type;
+        auto &upsampler = mUpsampler.emplace(upsampler_t{});
         for(auto &chandata : upsampler)
         {
             chandata.mHfScale = hfscales[idx];
@@ -181,7 +182,7 @@ void PshifterState::update(const ContextBase*, const EffectSlotBase *slot,
 
     mOutTarget = target.Main->Buffer;
     target.Main->setAmbiMixParams(slot->Wet, slot->Gain,
-        [this](usize const idx, u8 const outchan, float const outgain)
+        [this](std::size_t const idx, u8 const outchan, float const outgain)
     {
         if(idx < mChans.size())
         {

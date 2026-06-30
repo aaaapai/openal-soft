@@ -94,12 +94,12 @@ auto OboePlayback::reset() -> bool
     builder.setFormatConversionAllowed(false);
     builder.setCallback(this);
 
-    if(mDevice->Flags.test(FrequencyRequest))
+    if(mDevice->mFlags.test(DeviceFlag::FrequencyRequest))
     {
         builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::High);
         builder.setSampleRate(gsl::narrow_cast<int32_t>(mDevice->mSampleRate));
     }
-    if(mDevice->Flags.test(ChannelsRequest))
+    if(mDevice->mFlags.test(DeviceFlag::ChannelsRequest))
     {
         /* Only use mono or stereo at user request. There's no telling what
          * other counts may be inferred as.
@@ -108,7 +108,7 @@ auto OboePlayback::reset() -> bool
             : (mDevice->FmtChans==DevFmtStereo) ? oboe::ChannelCount::Stereo
             : oboe::ChannelCount::Unspecified);
     }
-    if(mDevice->Flags.test(SampleTypeRequest))
+    if(mDevice->mFlags.test(DeviceFlag::SampleTypeRequest))
     {
         oboe::AudioFormat format{oboe::AudioFormat::Unspecified};
         switch(mDevice->FmtType)
@@ -230,7 +230,7 @@ struct OboeCapture final : BackendBase, oboe::AudioStreamCallback {
     void start() override;
     void stop() override;
     void captureSamples(std::span<std::byte> outbuffer) override;
-    auto availableSamples() -> usize override;
+    auto availableSamples() -> std::size_t override;
 };
 
 auto OboeCapture::onAudioReady(oboe::AudioStream*, void *const audioData, int32_t const numFrames)
@@ -332,7 +332,7 @@ void OboeCapture::stop()
         ERR("Failed to stop stream: {}", oboe::convertToText(result));
 }
 
-auto OboeCapture::availableSamples() -> usize
+auto OboeCapture::availableSamples() -> std::size_t
 { return mRing->readSpace(); }
 
 void OboeCapture::captureSamples(std::span<std::byte> const outbuffer)

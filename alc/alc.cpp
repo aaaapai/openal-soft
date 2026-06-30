@@ -79,11 +79,9 @@
 #include "alstring.h"
 #include "alu.h"
 #include "atomic.h"
-#include "context.h"
 #include "core/ambidefs.h"
 #include "core/bformatdec.h"
 #include "core/bs2b.h"
-#include "core/context.h"
 #include "core/cpu_caps.h"
 #include "core/devformat.h"
 #include "core/device.h"
@@ -103,7 +101,7 @@
 #include "effects/base.h"
 #include "export_list.h"
 #include "flexarray.h"
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "gsl/gsl"
 #include "inprogext.h"
@@ -172,8 +170,12 @@
 #endif
 
 #if HAVE_CXXMODULES
+import alc.context;
+import format.types;
 import logging;
 #else
+#include "context.hpp"
+#include "alformattypes.hpp"
 #include "core/logging.h"
 #endif
 
@@ -198,6 +200,12 @@ auto APIENTRY DllMain(HINSTANCE module, DWORD reason, LPVOID /*reserved*/) -> BO
 #endif
 
 namespace {
+
+#if defined(__linux__) && !defined(AL_LIBTYPE_STATIC) && HAS_ATTRIBUTE(gnu::alias)
+#define DefineAlcAlias(X) extern "C" DECL_HIDDEN [[gnu::alias(#X)]] decltype(X) X##_;
+#else
+#define DefineAlcAlias(X)
+#endif
 
 using namespace std::string_view_literals;
 using std::chrono::seconds;
@@ -552,6 +560,18 @@ void alc_initconfig()
             UhjEncodeQuality = UhjQualityType::IIR;
         else
             WARN("Unsupported uhj/encode-filter: {}", *uhjfiltopt);
+    }
+
+    if(auto tsmefiltopt = ConfigValueStr({}, "tsme"sv, "decode-filter"sv))
+    {
+        if(al::case_compare(*tsmefiltopt, "fir256"sv) == 0)
+            TsmeDecodeQuality = TsmeQualityType::FIR256;
+        else if(al::case_compare(*tsmefiltopt, "fir512"sv) == 0)
+            TsmeDecodeQuality = TsmeQualityType::FIR512;
+        else if(al::case_compare(*tsmefiltopt, "iir"sv) == 0)
+            TsmeDecodeQuality = TsmeQualityType::IIR;
+        else
+            WARN("Unsupported tsme/decode-filter: {}", *tsmefiltopt);
     }
     if(auto tsmefiltopt = ConfigValueStr({}, "tsme"sv, "encode-filter"sv))
     {
@@ -1045,24 +1065,18 @@ constexpr auto X71Downmix = std::array{
 };
 
 
-auto CreateDeviceLimiter(gsl::not_null<const al::Device*> const device, float const threshold)
+auto CreateDeviceLimiter(gsl::not_null<const al::Device*> const device, f32 const threshold)
     -> std::unique_ptr<Compressor>
 {
-    static constexpr auto LookAheadTime = 0.001f;
-    static constexpr auto HoldTime = 0.002f;
-    static constexpr auto PreGainDb = 0.0f;
-    static constexpr auto PostGainDb = 0.0f;
-    static constexpr auto Ratio = std::numeric_limits<float>::infinity();
-    static constexpr auto KneeDb = 0.0f;
-    static constexpr auto AttackTime = 0.02f;
-    static constexpr auto ReleaseTime = 0.2f;
+    auto const flags = Compressor::FlagBits{}.set(Compressor::Flags::AutoKnee)
+        .set(Compressor::Flags::AutoAttack).set(Compressor::Flags::AutoRelease)
+        .set(Compressor::Flags::AutoPostGain).set(Compressor::Flags::AutoDeclip);
 
-    auto const flags = Compressor::FlagBits{}.set(Compressor::AutoKnee).set(Compressor::AutoAttack)
-        .set(Compressor::AutoRelease).set(Compressor::AutoPostGain).set(Compressor::AutoDeclip);
-
-    return Compressor::Create(device->RealOut.Buffer.size(),
-        gsl::narrow_cast<float>(device->mSampleRate), flags, LookAheadTime, HoldTime, PreGainDb,
-        PostGainDb, threshold, Ratio, KneeDb, AttackTime, ReleaseTime);
+    return Compressor::Create({.NumChans = usize{device->RealOut.Buffer.size()}.cast_to<u32>(),
+        .SampleRate = sys_uint{device->mSampleRate}.reinterpret_as<f32>(), .AutoFlags = flags,
+        .LookAheadTime = 0.001_f32, .HoldTime = 0.002_f32, .PreGainDb = 0.0_f32,
+        .PostGainDb = 0.0_f32, .ThresholdDb = threshold, .Ratio = f32::infinity(),
+        .KneeDb = 0.0_f32, .AttackTime = 0.02_f32, .ReleaseTime = 0.2_f32});
 }
 
 /**
@@ -1275,86 +1289,77 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         auto opthrtf = std::optional<bool>{};
         auto freqAttr = int{};
 
-        for(const auto attrparam : attrList)
+        for(auto const [attrparam, attrvalue] : attrList)
         {
-#define ATTRIBUTE(a) a: TRACE("{} = {}", #a, attrparam.value);
-#define ATTRIBUTE_HEX(a) a: TRACE("{} = {:#x}", #a, as_unsigned(attrparam.value));
-            switch(attrparam.attribute)
+#define ATTRIBUTE(a) a: TRACE("{} = {}", #a, attrvalue);
+#define ATTRIBUTE_HEX(a) a: TRACE("{} = {:#x}", #a, as_unsigned(attrvalue));
+            switch(attrparam)
             {
             case ATTRIBUTE_HEX(ALC_FORMAT_CHANNELS_SOFT)
                 if(device->Type == DeviceType::Loopback)
-                    optchans = DevFmtChannelsFromEnum(attrparam.value);
+                    optchans = DevFmtChannelsFromEnum(attrvalue);
                 break;
 
             case ATTRIBUTE_HEX(ALC_FORMAT_TYPE_SOFT)
                 if(device->Type == DeviceType::Loopback)
-                    opttype = DevFmtTypeFromEnum(attrparam.value);
+                    opttype = DevFmtTypeFromEnum(attrvalue);
                 break;
 
             case ATTRIBUTE(ALC_FREQUENCY)
-                freqAttr = attrparam.value;
+                freqAttr = attrvalue;
                 break;
 
             case ATTRIBUTE_HEX(ALC_AMBISONIC_LAYOUT_SOFT)
                 if(device->Type == DeviceType::Loopback)
-                    optlayout = DevAmbiLayoutFromEnum(attrparam.value);
+                    optlayout = DevAmbiLayoutFromEnum(attrvalue);
                 break;
 
             case ATTRIBUTE_HEX(ALC_AMBISONIC_SCALING_SOFT)
                 if(device->Type == DeviceType::Loopback)
-                    optscale = DevAmbiScalingFromEnum(attrparam.value);
+                    optscale = DevAmbiScalingFromEnum(attrvalue);
                 break;
 
             case ATTRIBUTE(ALC_AMBISONIC_ORDER_SOFT)
                 if(device->Type == DeviceType::Loopback)
-                    aorder = gsl::narrow_cast<ALCuint>(attrparam.value);
+                    aorder = gsl::narrow_cast<ALCuint>(attrvalue);
                 break;
 
             case ATTRIBUTE(ALC_MONO_SOURCES)
-                if(const auto val = attrparam.value; val >= 0)
-                    numMono = gsl::narrow_cast<ALCuint>(val);
-                else
-                    numMono = 0;
+                numMono = al::saturate_cast<ALCuint>(attrvalue);
                 break;
 
             case ATTRIBUTE(ALC_STEREO_SOURCES)
-                if(const auto val = attrparam.value; val >= 0)
-                    numStereo = gsl::narrow_cast<ALCuint>(val);
-                else
-                    numStereo = 0;
+                numStereo = al::saturate_cast<ALCuint>(attrvalue);
                 break;
 
             case ATTRIBUTE(ALC_MAX_AUXILIARY_SENDS)
-                if(const auto val = attrparam.value; val >= 0)
-                    numSends = std::min(gsl::narrow_cast<ALCuint>(val), ALCuint{MaxSendCount});
-                else
-                    numSends = 0;
+                numSends = gsl::narrow<ALCuint>(std::clamp<ALCint>(attrvalue, 0, MaxSendCount));
                 break;
 
             case ATTRIBUTE(ALC_HRTF_SOFT)
-                if(attrparam.value == ALC_FALSE)
+                if(attrvalue == ALC_FALSE)
                     opthrtf = false;
-                else if(attrparam.value == ALC_TRUE)
+                else if(attrvalue == ALC_TRUE)
                     opthrtf = true;
-                else if(attrparam.value == ALC_DONT_CARE_SOFT)
+                else if(attrvalue == ALC_DONT_CARE_SOFT)
                     opthrtf = std::nullopt;
                 break;
 
             case ATTRIBUTE(ALC_HRTF_ID_SOFT)
-                hrtf_id = attrparam.value;
+                hrtf_id = attrvalue;
                 break;
 
             case ATTRIBUTE(ALC_OUTPUT_LIMITER_SOFT)
-                if(attrparam.value == ALC_FALSE)
+                if(attrvalue == ALC_FALSE)
                     optlimit = false;
-                else if(attrparam.value == ALC_TRUE)
+                else if(attrvalue == ALC_TRUE)
                     optlimit = true;
-                else if(attrparam.value == ALC_DONT_CARE_SOFT)
+                else if(attrvalue == ALC_DONT_CARE_SOFT)
                     optlimit = std::nullopt;
                 break;
 
             case ATTRIBUTE_HEX(ALC_OUTPUT_MODE_SOFT)
-                outmode = attrparam.value;
+                outmode = attrvalue;
                 break;
 
             case ATTRIBUTE_HEX(ALC_CONTEXT_FLAGS_EXT)
@@ -1370,8 +1375,8 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
                 break;
 
             default:
-                TRACE("{:#04x} = {} ({:#x})", as_unsigned(attrparam.attribute), attrparam.value,
-                    as_unsigned(attrparam.value));
+                TRACE("{:#06x} = {} ({:#x})", as_unsigned(attrparam), attrvalue,
+                    as_unsigned(attrvalue));
                 break;
             }
 #undef ATTRIBUTE_HEX
@@ -1414,7 +1419,7 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
                 else if(outmode == ALC_STEREO_HRTF_SOFT)
                     stereomode = StereoEncoding::Hrtf;
             }
-            optsrate = gsl::narrow_cast<ALCuint>(freqAttr);
+            optsrate = gsl::narrow<ALCuint>(freqAttr);
         }
         else
         {
@@ -1525,7 +1530,8 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
             device->mAmbiLayout = *optlayout;
             device->mAmbiScale = *optscale;
         }
-        device->Flags.set(FrequencyRequest).set(ChannelsRequest).set(SampleTypeRequest);
+        device->mFlags.set(DeviceFlag::FrequencyRequest).set(DeviceFlag::ChannelsRequest)
+            .set(DeviceFlag::SampleTypeRequest);
     }
     else
     {
@@ -1535,9 +1541,9 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         device->mBufferSize = buffer_size;
         device->mUpdateSize = period_size;
         device->mSampleRate = optsrate.value_or(DefaultOutputRate);
-        device->Flags.set(FrequencyRequest, optsrate.has_value())
-            .set(ChannelsRequest, optchans.has_value())
-            .set(SampleTypeRequest, opttype.has_value());
+        device->mFlags.set(DeviceFlag::FrequencyRequest, optsrate.has_value())
+            .set(DeviceFlag::ChannelsRequest, optchans.has_value())
+            .set(DeviceFlag::SampleTypeRequest, opttype.has_value());
 
         if(device->FmtChans == DevFmtAmbi3D)
         {
@@ -1556,9 +1562,11 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
     }
 
     TRACE("Pre-reset: {}{}, {}{}, {}{}hz, {} / {} buffer",
-        device->Flags.test(ChannelsRequest)?"*":"", DevFmtChannelsString(device->FmtChans),
-        device->Flags.test(SampleTypeRequest)?"*":"", DevFmtTypeString(device->FmtType),
-        device->Flags.test(FrequencyRequest)?"*":"", device->mSampleRate,
+        device->mFlags.test(DeviceFlag::ChannelsRequest) ? "*" : "",
+        DevFmtChannelsString(device->FmtChans),
+        device->mFlags.test(DeviceFlag::SampleTypeRequest) ? "*" : "",
+        DevFmtTypeString(device->FmtType),
+        device->mFlags.test(DeviceFlag::FrequencyRequest) ? "*" : "", device->mSampleRate,
         device->mUpdateSize, device->mBufferSize);
 
     const auto oldFreq = device->mSampleRate;
@@ -1574,22 +1582,22 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         return ALC_INVALID_DEVICE;
     }
 
-    if(device->FmtChans != oldChans && device->Flags.test(ChannelsRequest))
+    if(device->FmtChans != oldChans && device->mFlags.test(DeviceFlag::ChannelsRequest))
     {
         ERR("Failed to set {}, got {} instead", DevFmtChannelsString(oldChans),
             DevFmtChannelsString(device->FmtChans));
-        device->Flags.reset(ChannelsRequest);
+        device->mFlags.reset(DeviceFlag::ChannelsRequest);
     }
-    if(device->FmtType != oldType && device->Flags.test(SampleTypeRequest))
+    if(device->FmtType != oldType && device->mFlags.test(DeviceFlag::SampleTypeRequest))
     {
         ERR("Failed to set {}, got {} instead", DevFmtTypeString(oldType),
             DevFmtTypeString(device->FmtType));
-        device->Flags.reset(SampleTypeRequest);
+        device->mFlags.reset(DeviceFlag::SampleTypeRequest);
     }
-    if(device->mSampleRate != oldFreq && device->Flags.test(FrequencyRequest))
+    if(device->mSampleRate != oldFreq && device->mFlags.test(DeviceFlag::FrequencyRequest))
     {
         WARN("Failed to set {}hz, got {}hz instead", oldFreq, device->mSampleRate);
-        device->Flags.reset(FrequencyRequest);
+        device->mFlags.reset(DeviceFlag::FrequencyRequest);
     }
 
     TRACE("Post-reset: {}, {}, {}hz, {} / {} buffer",
@@ -1601,9 +1609,9 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         if(auto modeopt = device->configValue<std::string>({}, "stereo-mode"))
         {
             if(al::case_compare(*modeopt, "headphones"sv) == 0)
-                device->Flags.set(DirectEar);
+                device->mFlags.set(DeviceFlag::DirectEar);
             else if(al::case_compare(*modeopt, "speakers"sv) == 0)
-                device->Flags.reset(DirectEar);
+                device->mFlags.reset(DeviceFlag::DirectEar);
             else if(al::case_compare(*modeopt, "auto"sv) != 0)
                 ERR("Unexpected stereo-mode: {}", *modeopt);
         }
@@ -1655,7 +1663,7 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
     case DevFmtAmbi3D: break;
     }
 
-    auto sample_delay = 0_uz;
+    auto sample_delay = 0_usize;
     if(auto *uhjenc = std::get_if<UhjPostProcess>(&device->mPostProcess))
         sample_delay += uhjenc->mUhjEncoder->getDelay();
 
@@ -1720,7 +1728,7 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         TRACE("Output limiter disabled");
     else
     {
-        auto thrshld = 1.0f;
+        auto thrshld = 1.0_f32;
         switch(device->FmtType)
         {
         case DevFmtByte:
@@ -1739,7 +1747,7 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
         if(device->DitherDepth > 0.0f)
             thrshld -= 1.0f / device->DitherDepth;
 
-        const auto thrshld_dB = std::log10(thrshld) * 20.0f;
+        const auto thrshld_dB = log10(thrshld) * 20.0f;
         auto limiter = CreateDeviceLimiter(device, thrshld_dB);
 
         sample_delay += limiter->getLookAhead();
@@ -1748,8 +1756,8 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
     }
 
     /* Convert the sample delay from samples to nanosamples to nanoseconds. */
-    sample_delay = std::min(sample_delay, usize{std::numeric_limits<int>::max()});
-    device->FixedLatency += nanoseconds{seconds{sample_delay}} / device->mSampleRate;
+    sample_delay = std::min(sample_delay, i32::max().as<usize>());
+    device->FixedLatency += nanoseconds{seconds{sample_delay.c_val}} / device->mSampleRate;
     TRACE("Fixed device latency: {}ns", device->FixedLatency.count());
 
     auto mixer_mode = FPUCtl{};
@@ -1880,7 +1888,7 @@ auto UpdateDeviceParams(gsl::not_null<al::Device*> device,
     mixer_mode.leave();
 
     device->mDeviceState = DeviceState::Configured;
-    if(!device->Flags.test(DevicePaused))
+    if(!device->mFlags.test(DeviceFlag::DevicePaused))
     {
         try {
             auto backend = device->Backend.get();
@@ -2031,6 +2039,7 @@ ALC_API ALCenum ALC_APIENTRY alcGetError(ALCdevice *device) noexcept
         return al::Device::sLastGlobalError.exchange(ALC_NO_ERROR);
     }
 }
+DefineAlcAlias(alcGetError)
 
 
 ALC_API void ALC_APIENTRY alcSuspendContext(ALCcontext *context) noexcept
@@ -2051,6 +2060,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcSuspendContext)
 
 ALC_API void ALC_APIENTRY alcProcessContext(ALCcontext *context) noexcept
 try {
@@ -2070,6 +2080,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcProcessContext)
 
 
 ALC_API auto ALC_APIENTRY alcGetString(ALCdevice *Device, ALCenum param) noexcept -> const ALCchar*
@@ -2174,10 +2185,11 @@ try {
 catch(al::base_exception&) {
     return nullptr;
 }
+DefineAlcAlias(alcGetString)
 
 namespace {
 auto GetIntegerv(al::Device *const device, ALCenum const param, std::span<ALCint> const values)
-    -> usize
+    -> std::size_t
 {
     Expects(!values.empty());
 
@@ -2509,6 +2521,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcGetIntegerv)
 
 ALC_API void ALC_APIENTRY alcGetInteger64vSOFT(ALCdevice *device, ALCenum pname, ALCsizei size,
     ALCint64SOFT *values) noexcept
@@ -2658,6 +2671,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcGetInteger64vSOFT)
 
 
 ALC_API auto ALC_APIENTRY alcIsExtensionPresent(ALCdevice *device, const ALCchar *extName) noexcept
@@ -2684,11 +2698,13 @@ try {
 catch(al::base_exception&) {
     return ALC_FALSE;
 }
+DefineAlcAlias(alcIsExtensionPresent)
 
 
 auto ALC_APIENTRY alcGetProcAddress2(ALCdevice *device, const ALCchar *funcName) noexcept
     -> ALCvoid*
 { return alcGetProcAddress(device, funcName); }
+DefineAlcAlias(alcGetProcAddress2)
 
 ALC_API auto ALC_APIENTRY alcGetProcAddress(ALCdevice *device, const ALCchar *funcName) noexcept
     -> ALCvoid*
@@ -2718,6 +2734,7 @@ try {
 catch(al::base_exception&) {
     return nullptr;
 }
+DefineAlcAlias(alcGetProcAddress)
 
 
 ALC_API auto ALC_APIENTRY alcGetEnumValue(ALCdevice *device, const ALCchar *enumName) noexcept
@@ -2747,6 +2764,7 @@ try {
 catch(al::base_exception&) {
     return 0;
 }
+DefineAlcAlias(alcGetEnumValue)
 
 
 ALC_API auto ALC_APIENTRY alcCreateContext(ALCdevice *device, const ALCint *attrList) noexcept
@@ -2776,11 +2794,11 @@ try {
     }
 
     auto ctxflags = ContextFlagBitset{0};
-    for(const auto attrparam : attrSpan)
+    for(auto const [attrparam, attrvalue] : attrSpan)
     {
-        if(attrparam.attribute == ALC_CONTEXT_FLAGS_EXT)
+        if(attrparam == ALC_CONTEXT_FLAGS_EXT)
         {
-            ctxflags = as_unsigned(attrparam.value);
+            ctxflags = as_unsigned(attrvalue);
             break;
         }
     }
@@ -2858,6 +2876,7 @@ catch(std::exception &e) {
     ERR("Caught exception in {}: {}", std::source_location::current().function_name(), e.what());
     return nullptr;
 }
+DefineAlcAlias(alcCreateContext)
 
 ALC_API void ALC_APIENTRY alcDestroyContext(ALCcontext *context) noexcept
 {
@@ -2891,6 +2910,7 @@ ALC_API void ALC_APIENTRY alcDestroyContext(ALCcontext *context) noexcept
         device->mDeviceState = DeviceState::Configured;
     }
 }
+DefineAlcAlias(alcDestroyContext)
 
 
 ALC_API auto ALC_APIENTRY alcGetCurrentContext() noexcept -> ALCcontext*
@@ -2899,10 +2919,12 @@ ALC_API auto ALC_APIENTRY alcGetCurrentContext() noexcept -> ALCcontext*
     if(!Context) Context = al::Context::sGlobalContext.load();
     return Context;
 }
+DefineAlcAlias(alcGetCurrentContext)
 
 /** Returns the currently active thread-local context. */
 ALC_API auto ALC_APIENTRY alcGetThreadContext() noexcept -> ALCcontext*
 { return al::Context::getThreadContext(); }
+DefineAlcAlias(alcGetThreadContext)
 
 ALC_API auto ALC_APIENTRY alcMakeContextCurrent(ALCcontext *context) noexcept -> ALCboolean
 try {
@@ -2933,6 +2955,7 @@ try {
 catch(al::base_exception&) {
     return ALC_FALSE;
 }
+DefineAlcAlias(alcMakeContextCurrent)
 
 /** Makes the given context the active context for the current thread. */
 ALC_API auto ALC_APIENTRY alcSetThreadContext(ALCcontext *context) noexcept -> ALCboolean
@@ -2949,6 +2972,7 @@ try {
 catch(al::base_exception&) {
     return ALC_FALSE;
 }
+DefineAlcAlias(alcSetThreadContext)
 
 
 ALC_API auto ALC_APIENTRY alcGetContextsDevice(ALCcontext *Context) noexcept -> ALCdevice*
@@ -2958,6 +2982,7 @@ try {
 catch(al::base_exception&) {
     return nullptr;
 }
+DefineAlcAlias(alcGetContextsDevice)
 
 
 ALC_API auto ALC_APIENTRY alcOpenDevice(const ALCchar *deviceName) noexcept -> ALCdevice*
@@ -3077,6 +3102,7 @@ catch(std::exception &e) {
     ERR("Caught exception in {}: {}", std::source_location::current().function_name(), e.what());
     return nullptr;
 }
+DefineAlcAlias(alcOpenDevice)
 
 ALC_API auto ALC_APIENTRY alcCloseDevice(ALCdevice *device) noexcept -> ALCboolean
 {
@@ -3133,6 +3159,7 @@ ALC_API auto ALC_APIENTRY alcCloseDevice(ALCdevice *device) noexcept -> ALCboole
 
     return ALC_TRUE;
 }
+DefineAlcAlias(alcCloseDevice)
 
 
 /************************************************
@@ -3184,9 +3211,9 @@ try {
     device->mSampleRate = frequency;
     device->FmtChans = decompfmt->chans;
     device->FmtType = decompfmt->type;
-    device->Flags.set(FrequencyRequest);
-    device->Flags.set(ChannelsRequest);
-    device->Flags.set(SampleTypeRequest);
+    device->mFlags.set(DeviceFlag::FrequencyRequest);
+    device->mFlags.set(DeviceFlag::ChannelsRequest);
+    device->mFlags.set(DeviceFlag::SampleTypeRequest);
 
     device->mUpdateSize = gsl::narrow_cast<ALCuint>(samples);
     device->mBufferSize = gsl::narrow_cast<ALCuint>(samples);
@@ -3230,6 +3257,7 @@ catch(std::exception &e) {
     ERR("Caught exception in {}: {}", std::source_location::current().function_name(), e.what());
     return nullptr;
 }
+DefineAlcAlias(alcCaptureOpenDevice)
 
 ALC_API auto ALC_APIENTRY alcCaptureCloseDevice(ALCdevice *device) noexcept -> ALCboolean
 {
@@ -3262,6 +3290,7 @@ ALC_API auto ALC_APIENTRY alcCaptureCloseDevice(ALCdevice *device) noexcept -> A
 
     return ALC_TRUE;
 }
+DefineAlcAlias(alcCaptureCloseDevice)
 
 ALC_API void ALC_APIENTRY alcCaptureStart(ALCdevice *device) noexcept
 try {
@@ -3292,6 +3321,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcCaptureStart)
 
 ALC_API void ALC_APIENTRY alcCaptureStop(ALCdevice *device) noexcept
 try {
@@ -3310,6 +3340,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcCaptureStop)
 
 ALC_API void ALC_APIENTRY alcCaptureSamples(ALCdevice *device, ALCvoid *buffer, ALCsizei samples)
     noexcept
@@ -3340,10 +3371,11 @@ try {
     }
 
     backend->captureSamples(std::span{static_cast<std::byte*>(buffer),
-        usize{usamples}*dev->frameSizeFromFmt()});
+        std::size_t{usamples}*dev->frameSizeFromFmt()});
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcCaptureSamples)
 
 
 /************************************************
@@ -3419,6 +3451,7 @@ catch(std::exception &e) {
     ERR("Caught exception in {}: {}", std::source_location::current().function_name(), e.what());
     return nullptr;
 }
+DefineAlcAlias(alcLoopbackOpenDeviceSOFT)
 
 /**
  * Determines if the loopback device supports the given format for rendering.
@@ -3443,6 +3476,7 @@ try {
 catch(al::base_exception&) {
     return ALC_FALSE;
 }
+DefineAlcAlias(alcIsRenderFormatSupportedSOFT)
 
 /**
  * Renders some samples into a buffer, using the format last set by the
@@ -3470,6 +3504,7 @@ ALC_API void ALC_APIENTRY alcRenderSamplesSOFT(ALCdevice *device, ALCvoid *buffe
         return dev->setError(ALC_INVALID_VALUE);
     dev->renderSamples(buffer, gsl::narrow_cast<ALCuint>(samples), dev->channelsFromFmt());
 }
+DefineAlcAlias(alcRenderSamplesSOFT)
 
 
 /************************************************
@@ -3490,11 +3525,12 @@ try {
             dev->Backend->stop();
             dev->mDeviceState = DeviceState::Configured;
         }
-        dev->Flags.set(DevicePaused);
+        dev->mFlags.set(DeviceFlag::DevicePaused);
     }
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcDevicePauseSOFT)
 
 /** Resume the DSP to restart audio processing. */
 ALC_API void ALC_APIENTRY alcDeviceResumeSOFT(ALCdevice *device) noexcept
@@ -3507,7 +3543,7 @@ try {
     }
 
     auto statelock = std::lock_guard{dev->StateLock};
-    if(!dev->Flags.test(DevicePaused))
+    if(!dev->mFlags.test(DeviceFlag::DevicePaused))
         return;
     if(dev->mDeviceState < DeviceState::Configured)
     {
@@ -3521,7 +3557,7 @@ try {
         dev->setError(ALC_INVALID_DEVICE);
         return;
     }
-    dev->Flags.reset(DevicePaused);
+    dev->mFlags.reset(DeviceFlag::DevicePaused);
     if(dev->mContexts.load()->empty())
         return;
 
@@ -3542,6 +3578,7 @@ try {
 }
 catch(al::base_exception&) {
 }
+DefineAlcAlias(alcDeviceResumeSOFT)
 
 
 /************************************************
@@ -3572,6 +3609,7 @@ try {
 catch(al::base_exception&) {
     return nullptr;
 }
+DefineAlcAlias(alcGetStringiSOFT)
 
 /** Resets the given device output, using the specified attribute list. */
 ALC_API auto ALC_APIENTRY alcResetDeviceSOFT(ALCdevice *device, const ALCint *attribs) noexcept
@@ -3602,6 +3640,7 @@ try {
 catch(al::base_exception&) {
     return ALC_FALSE;
 }
+DefineAlcAlias(alcResetDeviceSOFT)
 
 
 /************************************************
@@ -3725,6 +3764,7 @@ catch(std::exception &e) {
     ERR("Caught exception in {}: {}", std::source_location::current().function_name(), e.what());
     return ALC_FALSE;
 }
+DefineAlcAlias(alcReopenDeviceSOFT)
 
 /************************************************
  * ALC event query functions
@@ -3758,3 +3798,4 @@ FORCE_ALIGN auto ALC_APIENTRY alcEventIsSupportedSOFT(ALCenum eventType, ALCenum
     al::Device::SetGlobalError(ALC_INVALID_ENUM);
     return ALC_FALSE;
 }
+DefineAlcAlias(alcEventIsSupportedSOFT)
