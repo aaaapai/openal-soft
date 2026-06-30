@@ -340,6 +340,9 @@ DeclareFuncAlias(alGetStringiDirectSOFT);
 
 DeclareFuncAlias(alBufferDataStaticDirect);
 DeclareFuncAlias(alBufferCallbackDirectSOFT);
+DeclareFuncAlias(alGetBufferPtrDirectSOFT);
+DeclareFuncAlias(alGetBuffer3PtrDirectSOFT);
+DeclareFuncAlias(alGetBufferPtrvDirectSOFT);
 DeclareFuncAlias(alBufferSubDataDirectSOFT);
 DeclareFuncAlias(alBufferStorageDirectSOFT);
 DeclareFuncAlias(alMapBufferDirectSOFT);
@@ -363,6 +366,8 @@ DeclareFuncAlias(alSourcePlayAtTimevDirectSOFT);
 
 DeclareFuncAlias(alEventControlDirectSOFT);
 DeclareFuncAlias(alEventCallbackDirectSOFT);
+DeclareFuncAlias(alGetPointerDirectSOFT);
+DeclareFuncAlias(alGetPointervDirectSOFT);
 
 DeclareFuncAlias(alDebugMessageCallbackDirectEXT);
 DeclareFuncAlias(alDebugMessageInsertDirectEXT);
