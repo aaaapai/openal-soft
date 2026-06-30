@@ -329,13 +329,8 @@ void DSoundPlayback::open(std::string_view name)
     if(SUCCEEDED(hr)) {
         HWND hWnd = GetForegroundWindow();
         if (hWnd == NULL)
-        {
-            hWnd = GetConsoleWindow();
-            if (hWnd == NULL)
-            {
-                hWnd = GetDesktopWindow();
-            }
-        }
+            hWnd = GetDesktopWindow();
+        hr = ds->SetCooperativeLevel(hWnd, DSSCL_PRIORITY);
     }
     if(FAILED(hr))
         throw al::backend_exception{al::backend_error::DeviceError, "Device init failed: {:#x}",
